@@ -4,10 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-start_time = 0.0
-init_pos_vec = np.array([0.0, 0.0])
-init_vel_vec = np.array([50.0, 50.0])
-
 def force(mass, gravity_const):
     force_x = 0.0
     force_y = -mass * gravity_const
@@ -19,42 +15,17 @@ def step_euler(x, v, dt, mass, gravity_const, f):
     v_new = v + f(mass, gravity_const) * dt
     return x_new, v_new
 
-# Plot the trajectory of the ball in x-y-plane
-def Plot_x_y(trajec_array):
+# Generalized function to plot the trajectory of the ball in different planes.
+def plot_trajectory(trajec_array, x_label, y_label, file_name, axis1, axis2):
     for index, trajec in enumerate(trajec_array):
-        plt.plot(trajec[:,0], trajec[:,1], label="Mass = " + str(mass_list[index]))
+        label_mass = "Mass = " + str(mass_list[index])
+        plt.plot(trajec[:,axis1], trajec[:,axis2], label=label_mass)
     
-    plt.xlabel("x [m]")
-    plt.ylabel("y [m]")
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
     plt.legend()
     file_path = os.path.dirname(os.path.abspath('ex_2_1.py'))
-    file_path = file_path + "\\Exercises\\Exercise2\\trajectory_x_y.pdf"
-    plt.savefig(file_path)
-    plt.show()
-
-# Plot the trajectory of the ball in x-t-plane
-def Plot_x_t(trajec_array):
-    for index, trajec in enumerate(trajec_array):
-        plt.plot(trajec[:,2], trajec[:,0], label="Mass = " + str(mass_list[index]))
-    
-    plt.xlabel("time [s]")
-    plt.ylabel("x [m]")
-    plt.legend()
-    file_path = os.path.dirname(os.path.abspath('ex_2_1.py'))
-    file_path = file_path + "\\Exercises\\Exercise2\\trajectory_x_t.pdf"
-    plt.savefig(file_path)
-    plt.show()
-
-# Plot the trajectory of the ball in y-t-plane
-def Plot_y_t(trajec_array):
-    for index, trajec in enumerate(trajec_array):
-        plt.plot(trajec[:,2], trajec[:,1], label="Mass = " + str(mass_list[index]))
-    
-    plt.xlabel("time [s]")
-    plt.ylabel("y [m]")
-    plt.legend()
-    file_path = os.path.dirname(os.path.abspath('ex_2_1.py'))
-    file_path = file_path + "\\Exercises\\Exercise2\\trajectory_y_t.pdf"
+    file_path = file_path + "\\Exercises\\Exercise2\\" + file_name
     plt.savefig(file_path)
     plt.show()
 
@@ -69,7 +40,6 @@ def Calc_trajec_for_one_mass(pos_vec, velo_vec, time, force, step_euler, mass, g
         pos_vec_list = pos_vec.tolist()
         pos_vec_list.append(t)
         pos_and_time = np.array(pos_vec_list)
-        # print(pos_and_time)
         trajec.append(pos_and_time)
         pos_vec, velo_vec = step_euler(pos_vec, velo_vec, dt, mass, gravity_const, force)
         if pos_vec[1] <= 0.0:
@@ -77,22 +47,46 @@ def Calc_trajec_for_one_mass(pos_vec, velo_vec, time, force, step_euler, mass, g
     else:
         print("Warning: Maximum time was too small!")
     
-    trajec.append(Interpolate(trajec[-2][0], trajec[-1][0], trajec[-2][1], trajec[-1][1], trajec[-2][2]))
+    trajec.append(Interpolate(trajec[-2][0], trajec[-1][0], trajec[-2][1], trajec[-1][1], trajec[-2][2], trajec[-1][2]))
 
 # Interpolate last two points of trajectory to determine position of ball hitting the ground.
-def Interpolate(x1, x2, y1, y2, time1):
+def Interpolate(x1, x2, y1, y2, time1, time2):
+    if x1 == x2 and time1 == time2:
+        print("Warning: x1 == x2 and time1 == time2")
+        return x1, y1, time1
+    if x1 == x2 and time1 != time2 or x1 != x2 and time1 == time2:
+        raise
+        ValueError("Interpolation not possible!")
+
     x_y_slope = (y2 - y1) / (x2 - x1)
-    y_t_slope = (time1 - time1) / (y2 - y1)
-    x3 = x1 - y1 / x_y_slope
+    t_y_slope = (y2 - y1) / (time2 - time1)
+
+    if x_y_slope == 0.0:
+        print("Warning: x_y_slope == 0.0")
+        x3 = x1
+    else:
+        x3 = x1 - y1 / x_y_slope
     y3 = 0.0
-    time3 = time1 - y1 / y_t_slope
-    #time3 = time1 - y1 / x_y_slope
+    if t_y_slope == 0.0:
+        print("Warning: t_y_slope == 0.0")
+        time3 = time1
+    else:
+        time3 = time1 - y1 / t_y_slope
+
     return x3, y3, time3
 
-if __name__ == "__main__":
+def Set_variables():
+    start_time = 0.0
+    init_pos_vec = np.array([0.0, 0.0])
+    init_vel_vec = np.array([50.0, 50.0])
+
     mass_list = [1.0, 2.0, 5.0]
     gravity_const = 9.81
     dt = 0.01
+    return start_time,init_pos_vec,init_vel_vec,mass_list,gravity_const,dt
+
+if __name__ == "__main__":
+    start_time, init_pos_vec, init_vel_vec, mass_list, gravity_const, dt = Set_variables()
     
     # Define empty lists
     trajec_list = []
@@ -110,7 +104,6 @@ if __name__ == "__main__":
     file_path = file_path + "\\Exercises\\Exercise2\\trajectory.txt"
     np.savetxt(file_path, trajec_array[0], delimiter="\t")
 
-    # Plot the trajectory and create PDF file
-    Plot_x_y(trajec_array)
-    Plot_x_t(trajec_array)
-    Plot_y_t(trajec_array)
+    plot_trajectory(trajec_array, "x [m]", "y [m]", "trajectory_x_y.pdf", 0, 1)
+    plot_trajectory(trajec_array, "time [s]", "x [m]", "trajectory_x_t.pdf", 2, 0)
+    plot_trajectory(trajec_array, "time [s]", "y [m]", "trajectory_y_t.pdf", 2, 1)
