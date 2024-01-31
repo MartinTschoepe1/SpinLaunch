@@ -2,3 +2,5 @@ Sarah/worksheet
 Makefile
 *.pdf
 *.txt
+__pycache__
+*.pyc
