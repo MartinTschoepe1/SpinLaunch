@@ -24,18 +24,22 @@ def plot_trajectory(trajec_array, x_label, y_label, file_name, axis1, axis2):
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.legend()
-    file_path = os.path.dirname(os.path.abspath('ex_2_1.py'))
-    file_path = file_path + "\\Exercises\\Exercise2\\" + file_name
+    file_path = determine_full_path(file_name)
     plt.savefig(file_path)
     plt.show()
 
-def Calc_trajec_for_all_masses(init_pos_vec, init_vel_vec, start_time, force, step_euler, mass_list, gravity_const, dt, trajec_list):
+def determine_full_path(file_name):
+    file_path = os.path.dirname(os.path.abspath('ex_2_1.py'))
+    file_path = file_path + "\\Exercises\\Exercise2\\" + file_name
+    return file_path
+
+def Calc_trajec_set(init_pos_vec, init_vel_vec, start_time, force, step_euler, mass_list, gravity_const, dt, trajec_list):
     for mass in mass_list:
         trajec = []
-        Calc_trajec_for_one_mass(init_pos_vec, init_vel_vec, start_time, force, step_euler, mass, gravity_const, dt, trajec)
+        Calc_trajec_single(init_pos_vec, init_vel_vec, start_time, force, step_euler, mass, gravity_const, dt, trajec)
         trajec_list.append(trajec)
 
-def Calc_trajec_for_one_mass(pos_vec, velo_vec, time, force, step_euler, mass, gravity_const, dt, trajec):
+def Calc_trajec_single(pos_vec, velo_vec, time, force, step_euler, mass, gravity_const, dt, trajec):
     for t in np.arange(time, 20, dt):
         pos_vec_list = pos_vec.tolist()
         pos_vec_list.append(t)
@@ -85,25 +89,29 @@ def Set_variables():
     dt = 0.01
     return start_time,init_pos_vec,init_vel_vec,mass_list,gravity_const,dt
 
+def Convert_list_of_lists_to_list_of_nparraies(trajec_list):
+    trajec_array = []
+    for trajec in trajec_list:
+        trajec_array.append(np.array(trajec))
+    return trajec_array
+
 if __name__ == "__main__":
     start_time, init_pos_vec, init_vel_vec, mass_list, gravity_const, dt = Set_variables()
     
     # Define empty lists
     trajec_list = []
-    trajec_array = []
 
     # Loop over time and break, if the ball hits the ground
-    Calc_trajec_for_all_masses(init_pos_vec, init_vel_vec, start_time, force, step_euler, mass_list, gravity_const, dt, trajec_list)
+    Calc_trajec_set(init_pos_vec, init_vel_vec, \
+         start_time, force, step_euler, mass_list, gravity_const, dt, trajec_list)
     
     # Convert trajectory to numpy array
-    for trajec in trajec_list:
-        trajec_array.append(np.array(trajec))
+    trajec_list = Convert_list_of_lists_to_list_of_nparraies(trajec_list)
 
     # Write the first trajectory in file.
-    file_path = os.path.dirname(os.path.abspath('ex_2_1.py'))
-    file_path = file_path + "\\Exercises\\Exercise2\\trajectory.txt"
-    np.savetxt(file_path, trajec_array[0], delimiter="\t")
+    file_path = determine_full_path("trajectory.txt")
+    np.savetxt(file_path, trajec_list[0], delimiter="\t")
 
-    plot_trajectory(trajec_array, "x [m]", "y [m]", "trajectory_x_y.pdf", 0, 1)
-    plot_trajectory(trajec_array, "time [s]", "x [m]", "trajectory_x_t.pdf", 2, 0)
-    plot_trajectory(trajec_array, "time [s]", "y [m]", "trajectory_y_t.pdf", 2, 1)
+    plot_trajectory(trajec_list, "x [m]", "y [m]", "trajectory_x_y.pdf", 0, 1)
+    plot_trajectory(trajec_list, "time [s]", "x [m]", "trajectory_x_t.pdf", 2, 0)
+    plot_trajectory(trajec_list, "time [s]", "y [m]", "trajectory_y_t.pdf", 2, 1)
