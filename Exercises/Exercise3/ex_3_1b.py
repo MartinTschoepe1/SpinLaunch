@@ -36,7 +36,7 @@ if __name__ == "__main__":
     x_init = np.concatenate((x_init, x_init_projectile), axis=1)
     v_init_projectile = np.array([[0.0], [6.28318531 + 0.09779]])
     v_init = np.concatenate((v_init, v_init_projectile), axis=1)
-    m = np.append(m, 0.0001)
+    m = np.append(m, 1.67443e-22)
 
     new_file_name2 = "solar_system_mercury_projectile_2D.npz"
     new_file_path2 = ex_3_1.determine_full_path(new_file_name2)
