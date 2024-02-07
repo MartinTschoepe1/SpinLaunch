@@ -6,6 +6,15 @@ import scipy.constants
 import time
 from time import sleep
 
+# Notalbe numerical integration packages for the n body problem
+# Rebound: https://rebound.readthedocs.io/en/latest/
+# REBOUNDx: https://reboundx.readthedocs.io/en/latest/
+# AstroPy: https://docs.astropy.org/en/stable/
+# PyKEP: https://esa.github.io/pykep/
+# Poliastro: https://docs.poliastro.space/en/stable/
+# Galpy: https://docs.galpy.org/en/v1.7.0/
+
+
 def determine_full_path(file_name):
     file_path = os.path.dirname(os.path.abspath('ex_3_1.py'))
     file_path = file_path + "\\Exercises\\Exercise3\\" + file_name
@@ -310,7 +319,6 @@ if __name__ == "__main__":
     t_max = 3.0e-3 # maximum time in years
     # steps = 1e3 # number of time steps
 
-    # with steps = 1e5 with total calc time is 1238.8 seconds
     steps = 1e5 # number of time steps
     
     dt = t_max/steps # time step in years
