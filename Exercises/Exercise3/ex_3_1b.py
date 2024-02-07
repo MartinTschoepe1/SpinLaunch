@@ -34,6 +34,7 @@ if __name__ == "__main__":
     names = np.append(names, "Projectile")
     x_init_projectile = np.array([[1.0 + 4.26343e-5], [0.0]])
     x_init = np.concatenate((x_init, x_init_projectile), axis=1)
+    # 0.09779 is the velocity of the earth rotation in AU/year
     v_init_projectile = np.array([[0.0], [6.28318531 + 0.09779]])
     v_init = np.concatenate((v_init, v_init_projectile), axis=1)
     m = np.append(m, 1.67443e-22)
@@ -57,4 +58,15 @@ if __name__ == "__main__":
     new_file_name3 = "solar_system_projectile_radius.npz"
     new_file_path3 = ex_3_1.determine_full_path(new_file_name3)
     np.savez(new_file_path3, names=names, x_init=x_init, v_init=v_init, m=m, radius=radius, g=g)
+
+    # Remove mars from the system
+    names = np.delete(names, 3)
+    x_init = np.delete(x_init, 3, axis=1)
+    v_init = np.delete(v_init, 3, axis=1)
+    m = np.delete(m, 3)
+    radius = np.delete(radius, 3)
+    
+    new_file_name4 = "solar_system_projectile_radius_wo_mars.npz"
+    new_file_path4 = ex_3_1.determine_full_path(new_file_name4)
+    np.savez(new_file_path4, names=names, x_init=x_init, v_init=v_init, m=m, radius=radius, g=g)
 
