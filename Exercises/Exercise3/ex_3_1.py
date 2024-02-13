@@ -5,15 +5,17 @@ import os
 import scipy.constants
 import time
 from time import sleep
+from scipy.integrate import solve_ivp
 
-# Notalbe numerical integration packages for the n body problem
-# Rebound: https://rebound.readthedocs.io/en/latest/
-# REBOUNDx: https://reboundx.readthedocs.io/en/latest/
-# AstroPy: https://docs.astropy.org/en/stable/
-# PyKEP: https://esa.github.io/pykep/
-# Poliastro: https://docs.poliastro.space/en/stable/
-# Galpy: https://docs.galpy.org/en/v1.7.0/
 
+# Possible numerical integration packages for the n body problem
+# Scipy (Available with Anaconda, scipy.integrate.solve_ivp)
+
+# PyKEP (Available with Anaconda)
+# Poliastro (Available with Anaconda)
+# Galpy (Available with Anaconda)
+# Gala (Available with Anaconda)
+# AstroPy (Available with Anaconda, No integration algorithm for n body problem)
 
 def determine_full_path(file_name):
     file_path = os.path.dirname(os.path.abspath('ex_3_1.py'))
@@ -102,74 +104,69 @@ def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radi
 
     return x_new, v_new
 
+def get_first_half_of_array(array):
+    return array[:len(array)//2]
+
+def get_second_half_of_array(array):
+    return array[len(array)//2:]
+
+def update_function(t, y, masses, gravity_const, n_dim, n_bodies):
+        x = get_first_half_of_array(y)
+        x = x.reshape((n_dim, n_bodies))
+        v = get_second_half_of_array(y)
+        dvdt = calc_massless_forces(x, masses, gravity_const).flatten()
+        res = np.concatenate((v, dvdt))
+        return res
+
+def sol_step(t_max, dt, x_init, v_init, masses, gravity_const):
+    time_interval = [0, t_max]
+    # get shape of the x_init array
+    n_dim, n_bodies = x_init.shape
+    x_init_flat = x_init.transpose().flatten()
+    v_init_flat = v_init.transpose().flatten()
+
+    # The x_v_init_flat array is the initial state of the system in the follwoing format:
+    # [x1, y1, z1, x2, y2, z2, ... , xn, yn, zy, vx1, vy1, vz1, vx2, vy2, vz2, ... , vxn, vyn, vzn]
+    # where n is the number of bodies and the first 3*n entries are the initial positions 
+    # and the last 3*n entries are the initial velocities
+    x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
+
+    sol = solve_ivp(update_function, time_interval, x_v_init_flat, first_step=dt, \
+        args=(masses, gravity_const, n_dim, n_bodies), max_step=dt)
+
+    number_of_steps = len(sol.t)
+    print("Number of steps: ", number_of_steps)
+    trajectories = get_first_half_of_array(sol.y)
+    # print(trajectories)
+    # print(" ")
+    trajectories = trajectories.reshape(( n_bodies, n_dim, number_of_steps )).transpose(1, 0, 2)
+
+    # print(trajectories)
+    # print(trajectories.shape)
+    # get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
+    return trajectories
+
 # Define function to apply numerical integration step and check for collisions
 def integrator_step_collision_checked(x, v, dt, masses, gravity_const, forces, radius):
-    x_new, v_new = step_euler(x, v, dt, masses, gravity_const, forces, radius)
+    x_new, v_new = step_euler(x, v, dt, masses, gravity_const)
     (collision, _ ) = detect_surface_touch(x_new, radius)
     return x_new, v_new, collision
 
 ####### Numerical integration step functions #######
 
-def step_euler(x, v, dt, masses, gravity_const, forces, radius):
+def step_euler(x, v, dt, masses, gravity_const):
     x_new = x + v * dt
-    orig_forces = forces(x, masses, gravity_const).transpose()
-    massless_forces = orig_forces / masses[np.newaxis,:]
+    massless_forces = calc_massless_forces(x, masses, gravity_const)
+    # orig_forces = forces(x, masses, gravity_const).transpose()
+    # massless_forces = orig_forces / masses[np.newaxis,:]
     v_new = v + massless_forces * dt
 
     return x_new, v_new
 
-def symplectic_euler(x, v, dt, masses, gravity_const, forces):
+def calc_massless_forces(x, masses, gravity_const):
     orig_forces = forces(x, masses, gravity_const).transpose()
-    massless_forces = orig_forces / masses[np.newaxis,:]
-    v_new = v + massless_forces * dt
-    x_new = x + v_new * dt
+    return orig_forces / masses[np.newaxis,:]
 
-    return x_new, v_new
-
-#TODO: Check if correctly implemented
-def verlet_algorithm(x, v, dt, masses, gravity_const, forces):
-    orig_forces = forces(x, masses, gravity_const).transpose()
-    massless_forces = orig_forces / masses[np.newaxis,:]
-    x_new = x + v * dt + 0.5 * massless_forces * dt**2
-    orig_forces_new = forces(x_new, masses, gravity_const).transpose()
-    massless_forces_new = orig_forces_new / masses[np.newaxis,:]
-    v_new = v + 0.5 * (massless_forces + massless_forces_new) * dt
-
-    return x_new, v_new
-
-#TODO: Check if correctly implemented
-def velocity_verlet(x, v, dt, masses, gravity_const, forces):
-    orig_forces = forces(x, masses, gravity_const).transpose()
-    massless_forces = orig_forces / masses[np.newaxis,:]
-    x_new = x + v * dt + 0.5 * massless_forces * dt**2
-    orig_forces_new = forces(x_new, masses, gravity_const).transpose()
-    massless_forces_new = orig_forces_new / masses[np.newaxis,:]
-    v_new = v + 0.5 * (massless_forces + massless_forces_new) * dt
-
-    return x_new, v_new
-
-#TODO: Check if correctly implemented
-def leap_frog(x, v, dt, masses, gravity_const, forces):
-    orig_forces = forces(x, masses, gravity_const).transpose()
-    massless_forces = orig_forces / masses[np.newaxis,:]
-    v_half = v + 0.5 * massless_forces * dt
-    x_new = x + v_half * dt
-    orig_forces_new = forces(x_new, masses, gravity_const).transpose()
-    massless_forces_new = orig_forces_new / masses[np.newaxis,:]
-    v_new = v_half + 0.5 * massless_forces_new * dt
-
-    return x_new, v_new
-
-#TODO: Check if correctly implemented
-def stormer_verlet(x, v, dt, masses, gravity_const, forces):
-    orig_forces = forces(x, masses, gravity_const).transpose()
-    massless_forces = orig_forces / masses[np.newaxis,:]
-    x_new = x + v * dt + 0.5 * massless_forces * dt**2
-    orig_forces_new = forces(x_new, masses, gravity_const).transpose()
-    massless_forces_new = orig_forces_new / masses[np.newaxis,:]
-    v_new = v + massless_forces_new * dt
-
-    return x_new, v_new
 
 ####### Force calculation functions #######
 
@@ -182,10 +179,12 @@ def forces(x, masses, g):
     F = np.zeros((n, space_dim)) # array to store forces (6 bodies, 2 dimensions)
     for i in range(n): 
         for j in range(n):
-            if i != j: # do not calculate force of body on itself
+            # if i != j: # do not calculate force of body on itself
+            if i < j: # do not calculate force of body on itself
                 distance_vector = (x[:,i] - x[:,j]) # vector pointing from body j to body i
                 delta_F = force(distance_vector, masses[i], masses[j], g)
                 F[i,:] = F[i,:] + delta_F
+                F[j,:] = F[j,:] - delta_F
     return F
 
 ####### Solar system simulation functions #######
@@ -231,13 +230,15 @@ def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius):
             v_init[0:2,idx_of_projectile] += calc_initial_velocity(angle, velocity)
             print("Initial velocity: ", v_init[0:2,idx_of_projectile], sep="\n")
             print(" ")
-            x_trajec, E_trajec, collision = simulate_solar_system(x_init, \
-                    v_init, dt, m, g, forces, t_max, radius, collision)
+            x_trajec = sol_step(t_max, dt, x_init, v_init, m, g)
+            # x_trajec, E_trajec, collision = simulate_solar_system(x_init, \
+            #         v_init, dt, m, g, forces, t_max, radius, collision)
 
+            # print("trajectory.shape: ", x_trajec.shape)
             # if not collision:
             # plot_energy(E_trajec, "energy.pdf")
-            # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
-            # plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric")
+            plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
+            plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric")
 
 # Calculate inital velocity vector of the projectile that needs to be added to its idle state
 def calc_initial_velocity(start_angle, velocity):
@@ -316,17 +317,18 @@ if __name__ == "__main__":
     names, x_init, v_init, m, radius, g = load_data("solar_system_projectile_radius_wo_mars.npz")
 
     t0 = time.time() # start clock for timing
+    dt = 3.0e-6 # time step in years
     t_max = 3.0e-3 # maximum time in years
-    # steps = 1e3 # number of time steps
 
-    steps = 1e5 # number of time steps
-    
-    dt = t_max/steps # time step in years
-    print("Number of time steps: ", steps)
+    steps = int(t_max/dt) # number of time steps
+    print("dt: ", dt)
+    print("steps: ", steps)
 
     print("Time step in seconds: ", dt*scipy.constants.year)
     print("Simulation length = ", t_max*scipy.constants.year/3600,  "hours", \
         t_max*scipy.constants.year/60, "minutes", t_max*scipy.constants.year,  "seconds" )
+
+    x_trajec = sol_step(t_max, dt, x_init, v_init, m, g)
 
     single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius)
 
