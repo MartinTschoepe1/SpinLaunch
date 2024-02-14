@@ -64,19 +64,24 @@ def detect_surface_touch(x, r):
 
     return collision, idx_of_coll_obj
 
-# This will only find a collision between the projectile and the earth!
-def detect_collision_earth(t, y, masses, gravity_const, n_dim, n_bodies, radius):
+# This will find a collision between the projectile and any other object
+def detect_collision_projectile(t, y, masses, gravity_const, n_dim, n_bodies, radius):
     x = get_first_half_of_array(y)
     x = x.reshape((n_dim, n_bodies))
-    idx_earth = 1
+
     idx_of_projectile = n_bodies-1
+    pos_proj  = x[:,idx_of_projectile] # current position of projectile
+    product_for_sign_change_criterion = 1.0
 
-    pos_proj  = x[:,idx_of_projectile] # current position of the projectile
-    pos_earth = x[:,idx_earth] # current position of the object
+    for idx in range(idx_of_projectile):
+        if idx == idx_of_projectile: print("Warning: idx == idx_of_projectile should not happen")
+        pos_object = x[:,idx]
+        distance_between_surfaces = np.linalg.norm(pos_proj-pos_object) - radius[idx] + radius[idx_of_projectile]
+        product_for_sign_change_criterion *= distance_between_surfaces
 
-    distance_between_surfaces = np.linalg.norm(pos_proj-pos_earth) - radius[idx_earth]+radius[idx_of_projectile]
-    return distance_between_surfaces
+    return product_for_sign_change_criterion
 
+#TODO: Write detection for earth orbit. A stable earth orbit costs enormous amounts of comp time without any interesting result.
 
 # Numerical integration step, checking for collisions, and applying corrections
 def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radius):
@@ -137,11 +142,11 @@ def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
     # and the last 3*n entries are the initial velocities
     x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
 
-    detect_collision_earth.terminal = True
-    detect_collision_earth.direction = 0
+    detect_collision_projectile.terminal = True
+    detect_collision_projectile.direction = 0
 
-    sol = solve_ivp(update_function, time_interval, x_v_init_flat, \
-        args=(masses, gravity_const, n_dim, n_bodies, radius), first_step=dt, events=detect_collision_earth, rtol=1e-10, atol=1e-9)
+    sol = solve_ivp(update_function, time_interval, x_v_init_flat, method='LSODA', \
+        args=(masses, gravity_const, n_dim, n_bodies, radius), first_step=dt, events=detect_collision_projectile, rtol=1e-10, atol=1e-7)
 
     number_of_steps = len(sol.t)
     print("Number of steps: ", number_of_steps)
@@ -228,13 +233,12 @@ def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius):
     # run simulation
     idx_of_projectile = x_init.shape[1]-1
     number_of_angles = 5
-    number_of_velocity_steps = 3
-    min_velocity = 1.0
-    max_velocity = 10.0 # AU/yr = 4744 m/s
+    number_of_velocity_steps = 4
+    min_velocity = 2.1
+    max_velocity = 8.0 # AU/yr = 4744 m/s
 
-    for angle in np.linspace(-90, 50, number_of_angles):
+    for angle in np.linspace(-90, 0, number_of_angles):
         for velocity in np.linspace(min_velocity, max_velocity, number_of_velocity_steps):
-        # for velocity in [max_velocity]:
             collision = False
             v_init[0:2,idx_of_projectile] += calc_initial_velocity(angle, velocity)
             #debugging
@@ -243,7 +247,7 @@ def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius):
 
             # if not collision:
             # plot_energy(E_trajec, "energy.pdf")
-            # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
+            plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
             plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric")
 
 # Calculate inital velocity vector of the projectile that needs to be added to its idle state
@@ -318,7 +322,8 @@ if __name__ == "__main__":
 
     t0 = time.time() # start clock for timing
     dt = 3.0e-6 # time step in years
-    t_max = 3.0e-1 # maximum time in years
+    # t_max = 3.0e-1 # maximum time in years
+    t_max = 3.0e-2 # maximum time in years
 
     steps = int(t_max/dt) # number of time steps
     print("dt: ", dt)
