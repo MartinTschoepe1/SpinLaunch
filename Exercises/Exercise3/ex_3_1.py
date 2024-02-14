@@ -8,15 +8,6 @@ from time import sleep
 from scipy.integrate import solve_ivp
 
 
-# Possible numerical integration packages for the n body problem
-# Scipy (Available with Anaconda, scipy.integrate.solve_ivp)
-
-# PyKEP (Available with Anaconda)
-# Poliastro (Available with Anaconda)
-# Galpy (Available with Anaconda)
-# Gala (Available with Anaconda)
-# AstroPy (Available with Anaconda, No integration algorithm for n body problem)
-
 def determine_full_path(file_name):
     file_path = os.path.dirname(os.path.abspath('ex_3_1.py'))
     file_path = file_path + "\\Exercises\\Exercise3\\" + file_name
@@ -73,6 +64,20 @@ def detect_surface_touch(x, r):
 
     return collision, idx_of_coll_obj
 
+# This will only find a collision between the projectile and the earth!
+def detect_collision_earth(t, y, masses, gravity_const, n_dim, n_bodies, radius):
+    x = get_first_half_of_array(y)
+    x = x.reshape((n_dim, n_bodies))
+    idx_earth = 1
+    idx_of_projectile = n_bodies-1
+
+    pos_proj  = x[:,idx_of_projectile] # current position of the projectile
+    pos_earth = x[:,idx_earth] # current position of the object
+
+    distance_between_surfaces = np.linalg.norm(pos_proj-pos_earth) - radius[idx_earth]+radius[idx_of_projectile]
+    return distance_between_surfaces
+
+
 # Numerical integration step, checking for collisions, and applying corrections
 def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radius):
     n = x.shape[1]
@@ -110,20 +115,21 @@ def get_first_half_of_array(array):
 def get_second_half_of_array(array):
     return array[len(array)//2:]
 
-def update_function(t, y, masses, gravity_const, n_dim, n_bodies):
-        x = get_first_half_of_array(y)
-        x = x.reshape((n_dim, n_bodies))
-        v = get_second_half_of_array(y)
-        dvdt = calc_massless_forces(x, masses, gravity_const).flatten()
-        res = np.concatenate((v, dvdt))
-        return res
+def update_function(t, y, masses, gravity_const, n_dim, n_bodies, radius):
+    #debugging
+    x = get_first_half_of_array(y)
+    x = x.reshape((n_dim, n_bodies))
+    v = get_second_half_of_array(y)
+    dvdt = calc_massless_forces(x, masses, gravity_const).flatten()
+    res = np.concatenate((v, dvdt))
+    return res
 
-def sol_step(t_max, dt, x_init, v_init, masses, gravity_const):
+def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
     time_interval = [0, t_max]
-    # get shape of the x_init array
     n_dim, n_bodies = x_init.shape
-    x_init_flat = x_init.transpose().flatten()
-    v_init_flat = v_init.transpose().flatten()
+
+    x_init_flat = x_init.flatten()
+    v_init_flat = v_init.flatten()
 
     # The x_v_init_flat array is the initial state of the system in the follwoing format:
     # [x1, y1, z1, x2, y2, z2, ... , xn, yn, zy, vx1, vy1, vz1, vx2, vy2, vz2, ... , vxn, vyn, vzn]
@@ -131,19 +137,19 @@ def sol_step(t_max, dt, x_init, v_init, masses, gravity_const):
     # and the last 3*n entries are the initial velocities
     x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
 
-    sol = solve_ivp(update_function, time_interval, x_v_init_flat, first_step=dt, \
-        args=(masses, gravity_const, n_dim, n_bodies), max_step=dt)
+    detect_collision_earth.terminal = True
+    detect_collision_earth.direction = 0
+
+    sol = solve_ivp(update_function, time_interval, x_v_init_flat, \
+        args=(masses, gravity_const, n_dim, n_bodies, radius), first_step=dt, events=detect_collision_earth, rtol=1e-10, atol=1e-9)
 
     number_of_steps = len(sol.t)
     print("Number of steps: ", number_of_steps)
-    trajectories = get_first_half_of_array(sol.y)
-    # print(trajectories)
-    # print(" ")
-    trajectories = trajectories.reshape(( n_bodies, n_dim, number_of_steps )).transpose(1, 0, 2)
 
-    # print(trajectories)
-    # print(trajectories.shape)
-    # get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
+    trajectories = get_first_half_of_array(sol.y)
+    trajectories = trajectories.reshape(( n_dim, n_bodies, number_of_steps ))
+
+    get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
     return trajectories
 
 # Define function to apply numerical integration step and check for collisions
@@ -157,16 +163,14 @@ def integrator_step_collision_checked(x, v, dt, masses, gravity_const, forces, r
 def step_euler(x, v, dt, masses, gravity_const):
     x_new = x + v * dt
     massless_forces = calc_massless_forces(x, masses, gravity_const)
-    # orig_forces = forces(x, masses, gravity_const).transpose()
-    # massless_forces = orig_forces / masses[np.newaxis,:]
     v_new = v + massless_forces * dt
 
     return x_new, v_new
 
 def calc_massless_forces(x, masses, gravity_const):
     orig_forces = forces(x, masses, gravity_const).transpose()
-    return orig_forces / masses[np.newaxis,:]
-
+    massless_forces = orig_forces / masses[np.newaxis,:]
+    return massless_forces
 
 ####### Force calculation functions #######
 
@@ -193,7 +197,7 @@ def forces(x, masses, g):
 def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, collision):
     space_dim, n = x_init.shape # number of bodies, dimension of space
     t = 0.0 # start time
-    steps = int(t_max/dt) # number of time steps
+    steps = int(t_max/dt) + 1 # number of time steps
     x = x_init # initialize position array
     v = v_init # initialize velocity array
     x_trajec = np.zeros((space_dim, n, steps)) # array to store trajectory
@@ -205,39 +209,41 @@ def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, colli
         v_trajec[:,:,i] = v
         E_trajec[i] = total_energy(x, v, m, g)
         x, v, collision = integrator_step_collision_checked(x, v, dt, m, g, forces, radius)
-        # print("Collision: ", collision)
         t = t + dt
         i = i + 1
-    x_trajec = x_trajec[:,:,:i] # remove unused entries
-    v_trajec = v_trajec[:,:,:i] # remove unused entries
-    E_trajec = E_trajec[:i] # remove unused entries
+    # remove unused entries
+    x_trajec = x_trajec[:,:,:i]
+    v_trajec = v_trajec[:,:,:i]
+    E_trajec = E_trajec[:i]
     return x_trajec, E_trajec, collision
 
-    
+# Debugging Ideas Chain of algo calls:
+# Old: single_simulation > simulate_solar_system > integrator_step_collision_checked > step_euler > calc_massless_forces > forces > force
+# New(buggy): single_simulation > sol_step > solve_ivp > update_function > calc_massless_forces > forces > force
+# Calc_massless_forces > forces > force are called in both cases. Hence, the bug is in sol_step, solve_ivp or update_function
+# solve_ivp is a black box, so the bug is likely in sol_step, update_function or in the call of solve_ivp
+# Note: Step size is fixed
+
 def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius):
     # run simulation
     idx_of_projectile = x_init.shape[1]-1
-    number_of_angles = 3
+    number_of_angles = 5
     number_of_velocity_steps = 3
-    min_velocity = 1.0e-0
-    max_velocity = 1.0e+2 # AU/yr = 4744 m/s
+    min_velocity = 1.0
+    max_velocity = 10.0 # AU/yr = 4744 m/s
 
-    for angle in np.linspace(0, 180, number_of_angles):
-        # for velocity in np.logspace(-2, +2, number_of_velocity_steps):
+    for angle in np.linspace(-90, 50, number_of_angles):
         for velocity in np.linspace(min_velocity, max_velocity, number_of_velocity_steps):
+        # for velocity in [max_velocity]:
             collision = False
-            print("Angle: ", angle, "Velocity: ", velocity)
             v_init[0:2,idx_of_projectile] += calc_initial_velocity(angle, velocity)
-            print("Initial velocity: ", v_init[0:2,idx_of_projectile], sep="\n")
-            print(" ")
-            x_trajec = sol_step(t_max, dt, x_init, v_init, m, g)
-            # x_trajec, E_trajec, collision = simulate_solar_system(x_init, \
-            #         v_init, dt, m, g, forces, t_max, radius, collision)
+            #debugging
+            x_trajec = sol_step(t_max, dt, x_init, v_init, m, g, radius)
+            # x_trajec, E_trajec, collision = simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, collision)
 
-            # print("trajectory.shape: ", x_trajec.shape)
             # if not collision:
             # plot_energy(E_trajec, "energy.pdf")
-            plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
+            # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
             plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric")
 
 # Calculate inital velocity vector of the projectile that needs to be added to its idle state
@@ -246,8 +252,6 @@ def calc_initial_velocity(start_angle, velocity):
     angle_rad = start_angle * np.pi / 180
     v_x = velocity * np.cos(angle_rad)
     v_y = velocity * np.sin(angle_rad)
-    print("angle ", start_angle, "angle_rad ", angle_rad)
-    print("cos(angle): ", np.cos(angle_rad), "sin(angle): ", np.sin(angle_rad))
     return np.array([v_x, v_y])
 
 ####### Plotting functions #######
@@ -269,8 +273,8 @@ def plot_trajectories_solarcentric(x_trajec, names, file_name):
         plt.plot(x_trajec[0,i,:], x_trajec[1,i,:], label=names[i])
     plt.xlabel("x [AU]")
     plt.ylabel("y [AU]")
-    plt.xlim(0.997, 1.003)
-    plt.ylim(-0.001, 0.09)
+    plt.xlim(-1.2, 1.2)
+    plt.ylim(-1.2, 1.2)
     plt.gcf().set_size_inches(12, 12)
     plt.legend()
     plt.savefig(file_name + ".pdf")
@@ -305,30 +309,23 @@ def plot_energy(E_trajec, file_name):
     plt.show()
 
 
-
-
-
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    # names, x_init, v_init, m, g = load_data("solar_system.npz")
-    # names, x_init, v_init, m, g = load_data("solar_system_mercury.npz")
-    # names, x_init, v_init, m, radius, g = load_data("solar_system_projectile_radius.npz")
     names, x_init, v_init, m, radius, g = load_data("solar_system_projectile_radius_wo_mars.npz")
+
+    np.set_printoptions(precision=4, suppress=True, linewidth=200)
 
     t0 = time.time() # start clock for timing
     dt = 3.0e-6 # time step in years
-    t_max = 3.0e-3 # maximum time in years
+    t_max = 3.0e-1 # maximum time in years
 
     steps = int(t_max/dt) # number of time steps
     print("dt: ", dt)
-    print("steps: ", steps)
 
     print("Time step in seconds: ", dt*scipy.constants.year)
     print("Simulation length = ", t_max*scipy.constants.year/3600,  "hours", \
         t_max*scipy.constants.year/60, "minutes", t_max*scipy.constants.year,  "seconds" )
-
-    x_trajec = sol_step(t_max, dt, x_init, v_init, m, g)
 
     single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius)
 
