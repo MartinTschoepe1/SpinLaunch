@@ -7,7 +7,6 @@ import time
 from time import sleep
 from scipy.integrate import solve_ivp
 
-
 def determine_full_path(file_name):
     file_path = os.path.dirname(os.path.abspath('ex_3_1.py'))
     file_path = file_path + "\\Exercises\\Exercise3\\" + file_name
@@ -74,14 +73,60 @@ def detect_collision_projectile(t, y, masses, gravity_const, n_dim, n_bodies, ra
     product_for_sign_change_criterion = 1.0
 
     for idx in range(idx_of_projectile):
-        if idx == idx_of_projectile: print("Warning: idx == idx_of_projectile should not happen")
         pos_object = x[:,idx]
         distance_between_surfaces = np.linalg.norm(pos_proj-pos_object) - radius[idx] + radius[idx_of_projectile]
         product_for_sign_change_criterion *= distance_between_surfaces
-
     return product_for_sign_change_criterion
 
-#TODO: Write detection for earth orbit. A stable earth orbit costs enormous amounts of comp time without any interesting result.
+# Detect when projectile is still within moon orbit after one week. Event is terminal. Run time optimization. 
+def detect_slow_orbits(t, y, masses, gravity_const, n_dim, n_bodies, radius):
+    x = get_first_half_of_array(y)
+    x = x.reshape((n_dim, n_bodies))
+
+    idx_of_projectile = n_bodies-1
+    idx_of_earth = 1
+    idx_of_moon = 2
+    one_week_in_years = 1.0 / 52.0
+    pos_proj  = x[:,idx_of_projectile]
+    pos_earth = x[:,idx_of_earth]
+    pos_moon  = x[:,idx_of_moon]
+    
+    is_projectile_within_moon_orbit = np.linalg.norm(pos_proj-pos_earth) < np.linalg.norm(pos_moon-pos_earth)
+    is_within_one_week = t < one_week_in_years
+
+    if (is_within_one_week):
+        return 1
+    else:
+        if (is_projectile_within_moon_orbit):
+            return -1
+        else:
+            return 1
+
+# Detect apex of projectile orbit at sun to increase accuracy, event is not terminal
+def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius):
+    x = get_first_half_of_array(y)
+    x = x.reshape((n_dim, n_bodies))
+    v = get_second_half_of_array(y)
+    v = v.reshape((n_dim, n_bodies))
+
+    idx_of_projectile = n_bodies-1
+    idx_of_sun = 0
+    pos_proj  = x[:,idx_of_projectile]
+    pos_sun = x[:,idx_of_sun]
+    velocity_proj = v[:,idx_of_projectile]
+    velocity_sun = v[:,idx_of_sun]
+
+    relativ_pos_proj = pos_proj - pos_sun
+    relativ_velocity_proj = velocity_proj - velocity_sun
+    abs_value_distance_to_sun = np.linalg.norm(relativ_pos_proj)
+
+    dot_product = np.dot(relativ_pos_proj, relativ_velocity_proj)
+    denominator = np.linalg.norm(relativ_pos_proj) * np.linalg.norm(relativ_velocity_proj)
+    angle_between_pos_and_velocity_rad = np.arccos(dot_product / denominator)
+    angle_degree = angle_between_pos_and_velocity_rad * 180 / np.pi - 90
+
+    return angle_degree
+
 
 # Numerical integration step, checking for collisions, and applying corrections
 def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radius):
@@ -144,18 +189,23 @@ def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
 
     detect_collision_projectile.terminal = True
     detect_collision_projectile.direction = 0
+    detect_slow_orbits.terminal = True
+    detect_slow_orbits.direction = 0
+    detect_solar_apex.terminal = False
+    detect_solar_apex.direction = -1.0
 
-    sol = solve_ivp(update_function, time_interval, x_v_init_flat, method='LSODA', \
-        args=(masses, gravity_const, n_dim, n_bodies, radius), first_step=dt, events=detect_collision_projectile, rtol=1e-10, atol=1e-7)
+    # Method comparison:
+    # Time: RK45 (30.50s), RK23 (168.53s), DOP853 (31.15s), Radau (210.90s), BDF (75.36s), LSODA (25.92s)
+    sol = solve_ivp(update_function, time_interval, x_v_init_flat, args=(masses, gravity_const, n_dim, n_bodies, radius), \
+        first_step=dt, events=(detect_collision_projectile, detect_slow_orbits, detect_solar_apex), rtol=1e-10, atol=1e-7)
 
     number_of_steps = len(sol.t)
-    print("Number of steps: ", number_of_steps)
 
     trajectories = get_first_half_of_array(sol.y)
     trajectories = trajectories.reshape(( n_dim, n_bodies, number_of_steps ))
 
     get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
-    return trajectories
+    return trajectories, number_of_steps
 
 # Define function to apply numerical integration step and check for collisions
 def integrator_step_collision_checked(x, v, dt, masses, gravity_const, forces, radius):
@@ -222,13 +272,6 @@ def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, colli
     E_trajec = E_trajec[:i]
     return x_trajec, E_trajec, collision
 
-# Debugging Ideas Chain of algo calls:
-# Old: single_simulation > simulate_solar_system > integrator_step_collision_checked > step_euler > calc_massless_forces > forces > force
-# New(buggy): single_simulation > sol_step > solve_ivp > update_function > calc_massless_forces > forces > force
-# Calc_massless_forces > forces > force are called in both cases. Hence, the bug is in sol_step, solve_ivp or update_function
-# solve_ivp is a black box, so the bug is likely in sol_step, update_function or in the call of solve_ivp
-# Note: Step size is fixed
-
 def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius):
     # run simulation
     idx_of_projectile = x_init.shape[1]-1
@@ -237,17 +280,18 @@ def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius):
     min_velocity = 2.1
     max_velocity = 8.0 # AU/yr = 4744 m/s
 
-    for angle in np.linspace(-90, 0, number_of_angles):
+    for angle in np.linspace(-90, -30, number_of_angles):
         for velocity in np.linspace(min_velocity, max_velocity, number_of_velocity_steps):
             collision = False
             v_init[0:2,idx_of_projectile] += calc_initial_velocity(angle, velocity)
             #debugging
-            x_trajec = sol_step(t_max, dt, x_init, v_init, m, g, radius)
+            x_trajec, number_of_steps = sol_step(t_max, dt, x_init, v_init, m, g, radius)
             # x_trajec, E_trajec, collision = simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, collision)
+            print("# of steps: ", number_of_steps) #, "angle", angle, "velocity", velocity)
 
             # if not collision:
             # plot_energy(E_trajec, "energy.pdf")
-            plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
+            # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
             plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric")
 
 # Calculate inital velocity vector of the projectile that needs to be added to its idle state
@@ -273,12 +317,16 @@ def total_energy(x, v, masses, g):
 
 def plot_trajectories_solarcentric(x_trajec, names, file_name):
     space_dim, n, t_max = x_trajec.shape
+    solar_radius = 696342000 # in meters
+    au = 149597870700 # in meters
+    solar_radius_per_au =  au / solar_radius  # / scipy.constants.astronomical_unit
+    print("solar_radius_per_au: ", solar_radius_per_au)
     for i in range(n):
-        plt.plot(x_trajec[0,i,:], x_trajec[1,i,:], label=names[i])
-    plt.xlabel("x [AU]")
-    plt.ylabel("y [AU]")
-    plt.xlim(-1.2, 1.2)
-    plt.ylim(-1.2, 1.2)
+        plt.plot(x_trajec[0,i,:]*solar_radius_per_au, x_trajec[1,i,:]*solar_radius_per_au, label=names[i])
+    plt.xlabel("x [Sun radii]")
+    plt.ylabel("y [Sun radii]")
+    plt.xlim(-1.2*solar_radius_per_au, 1.2*solar_radius_per_au)
+    plt.ylim(-1.2*solar_radius_per_au, 1.2*solar_radius_per_au)
     plt.gcf().set_size_inches(12, 12)
     plt.legend()
     plt.savefig(file_name + ".pdf")
@@ -295,8 +343,8 @@ def plot_trajectories_geocentric(x_trajec, names, file_name):
     plt.setp(plt.gca().lines, linewidth=2)
     plt.xlabel("x [Earth radii]")
     plt.ylabel("y [Earth radii]")
-    plt.xlim(-1.5, 1.5)
-    plt.ylim(-1.5, 1.5)
+    plt.xlim(-100, 100)
+    plt.ylim(-100, 100)
     plt.gcf().set_size_inches(12, 12)
     plt.legend()
     plt.savefig(file_name + ".pdf")
@@ -322,8 +370,7 @@ if __name__ == "__main__":
 
     t0 = time.time() # start clock for timing
     dt = 3.0e-6 # time step in years
-    # t_max = 3.0e-1 # maximum time in years
-    t_max = 3.0e-2 # maximum time in years
+    t_max = 1.005 # maximum time in years
 
     steps = int(t_max/dt) # number of time steps
     print("dt: ", dt)
