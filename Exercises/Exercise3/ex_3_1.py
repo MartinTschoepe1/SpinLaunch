@@ -184,12 +184,11 @@ def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_a
 
     idx_of_projectile = n_bodies-1
     idx_of_sun = 0
-    pos_proj  = x_array[:,idx_of_projectile]
-    pos_sun = x_array[:,idx_of_sun]
+    relativ_pos_proj = get_connection_vector(x_array, idx_of_projectile, idx_of_sun)
+
     velocity_proj = v_array[:,idx_of_projectile]
     velocity_sun = v_array[:,idx_of_sun]
 
-    relativ_pos_proj = pos_proj - pos_sun
     relativ_velocity_proj = velocity_proj - velocity_sun
     abs_value_distance_to_sun = np.linalg.norm(relativ_pos_proj)
 
@@ -199,6 +198,12 @@ def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_a
     angle_degree = angle_between_pos_and_velocity_rad * 180 / np.pi - 90
 
     return angle_degree
+
+def get_connection_vector(x_array, idx_of_projectile, idx_of_sun):
+    pos_proj  = x_array[:,idx_of_projectile]
+    pos_sun = x_array[:,idx_of_sun]
+    relativ_pos_proj = pos_proj - pos_sun
+    return relativ_pos_proj
 
 # Detect inner apex of projectile trajectory to increase accuracy, event is not terminal
 def detect_inner_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached):
@@ -214,13 +219,20 @@ def detect_outer_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius
     else:
         return angle_degree
 
+def detect_outer_solar_system(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached):
+    x_array = get_position_array(y, n_dim, n_bodies)
+    idx_of_projectile = n_bodies-1
+    idx_of_sun = 0
+    distance_sun_jupiter = 5.2 # AU
+    pos_proj  = x_array[:,idx_of_projectile]
+    pos_sun = x_array[:,idx_of_sun]
+    distance_to_sun = np.linalg.norm(get_connection_vector(x_array, idx_of_projectile, idx_of_sun))
+    return distance_to_sun - distance_sun_jupiter
 
 def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
     time_interval = [0, t_max]
     n_dim, n_bodies = x_init.shape
-    is_apex_reached = False
-    is_apex_reached1 = [False]
-    # is_apex_reached1 = 'False'
+    is_apex_reached = [False]
 
     x_init_flat = x_init.flatten()
     v_init_flat = v_init.flatten()
@@ -239,18 +251,16 @@ def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
     detect_inner_solar_apex.direction = -1.0
     detect_outer_solar_apex.terminal = True
     detect_outer_solar_apex.direction = 1.0
+    detect_outer_solar_system.terminal = True
+    detect_outer_solar_system.direction = 1.0
 
-    print("inside sol_step before solve_ivp is_apex_reached: ", is_apex_reached1)
-    # angle_degree = detect_inner_solar_apex(0, x_v_init_flat, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached1)
-
-    args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached1
-    event_tuple = detect_collision_projectile, detect_slow_orbits, detect_inner_solar_apex, detect_outer_solar_apex
+    args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached
+    event_tuple = detect_collision_projectile, detect_slow_orbits, detect_inner_solar_apex, \
+        detect_outer_solar_apex, detect_outer_solar_system
     # Method comparison:
     # Time: RK45 (30.50s), RK23 (168.53s), DOP853 (31.15s), Radau (210.90s), BDF (75.36s), LSODA (25.92s)
     sol = solve_ivp(update_function, time_interval, x_v_init_flat, args=args_tuple, \
         first_step=dt, events=event_tuple, rtol=1e-10, atol=1e-7)
-
-    print("inside sol_step after solve_ivp is_apex_reached: ", is_apex_reached1)
 
     number_of_steps = len(sol.t)
 
