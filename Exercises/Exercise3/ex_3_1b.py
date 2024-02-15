@@ -32,10 +32,10 @@ if __name__ == "__main__":
 
     # Add projectile to the system
     names = np.append(names, "Projectile")
-    x_init_projectile = np.array([[1.0 + 4.26343e-5], [0.0]])
+    x_init_projectile = np.array([[1.0 ], [-4.26343e-5]])
     x_init = np.concatenate((x_init, x_init_projectile), axis=1)
     # 0.09779 is the velocity of the earth rotation in AU/year
-    v_init_projectile = np.array([[0.0], [6.28318531 + 0.09779]])
+    v_init_projectile = np.array([[0.09779], [6.28318531]])
     v_init = np.concatenate((v_init, v_init_projectile), axis=1)
     m = np.append(m, 1.67443e-22)
 
@@ -45,15 +45,17 @@ if __name__ == "__main__":
 
     # Information about the radius of all objects
 
+    au = scipy.constants.au
+
     radius = np.array([])
-    radius = np.append(radius, 6.96342e8 / scipy.constants.au) # Add radius of sun in AU
-    radius = np.append(radius, 6.371e6 / scipy.constants.au) # Radius of earth
-    radius = np.append(radius, 1737.1e3 / scipy.constants.au) # Radius of moon
-    radius = np.append(radius, 3396.2e3 / scipy.constants.au) # Radius of mars
-    radius = np.append(radius, 69911e3 / scipy.constants.au) # Radius of Jupiter
-    radius = np.append(radius, 6051.8e3 / scipy.constants.au) # Radius of Venus
-    radius = np.append(radius, 2439.7e3 / scipy.constants.au) # Radius of Mercury
-    radius = np.append(radius, 1 / scipy.constants.au) # Radius of projectile
+    radius = np.append(radius, 6.96342e8 / au) # Add radius of sun in AU
+    radius = np.append(radius, 6.371e6   / au) # Radius of earth
+    radius = np.append(radius, 1737.1e3  / au) # Radius of moon
+    radius = np.append(radius, 3396.2e3  / au) # Radius of mars
+    radius = np.append(radius, 69911e3   / au) # Radius of Jupiter
+    radius = np.append(radius, 6051.8e3  / au) # Radius of Venus
+    radius = np.append(radius, 2439.7e3  / au) # Radius of Mercury
+    radius = np.append(radius, 1         / au) # Radius of projectile
 
     new_file_name3 = "solar_system_projectile_radius.npz"
     new_file_path3 = ex_3_1.determine_full_path(new_file_name3)
