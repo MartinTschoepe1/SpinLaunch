@@ -65,31 +65,29 @@ def detect_surface_touch(x, r):
 
 # This will find a collision between the projectile and any other object
 def detect_collision_projectile(t, y, masses, gravity_const, n_dim, n_bodies, radius):
-    x = get_first_half_of_array(y)
-    x = x.reshape((n_dim, n_bodies))
+    x_array = get_position_array(y, n_dim, n_bodies)
 
     idx_of_projectile = n_bodies-1
-    pos_proj  = x[:,idx_of_projectile] # current position of projectile
+    pos_proj  = x_array[:,idx_of_projectile] # current position of projectile
     product_for_sign_change_criterion = 1.0
 
     for idx in range(idx_of_projectile):
-        pos_object = x[:,idx]
+        pos_object = x_array[:,idx]
         distance_between_surfaces = np.linalg.norm(pos_proj-pos_object) - radius[idx] + radius[idx_of_projectile]
         product_for_sign_change_criterion *= distance_between_surfaces
     return product_for_sign_change_criterion
 
 # Detect when projectile is still within moon orbit after one week. Event is terminal. Run time optimization. 
 def detect_slow_orbits(t, y, masses, gravity_const, n_dim, n_bodies, radius):
-    x = get_first_half_of_array(y)
-    x = x.reshape((n_dim, n_bodies))
+    x_array = get_position_array(y, n_dim, n_bodies)
 
     idx_of_projectile = n_bodies-1
     idx_of_earth = 1
     idx_of_moon = 2
     one_week_in_years = 1.0 / 52.0
-    pos_proj  = x[:,idx_of_projectile]
-    pos_earth = x[:,idx_of_earth]
-    pos_moon  = x[:,idx_of_moon]
+    pos_proj  = x_array[:,idx_of_projectile]
+    pos_earth = x_array[:,idx_of_earth]
+    pos_moon  = x_array[:,idx_of_moon]
     
     is_projectile_within_moon_orbit = np.linalg.norm(pos_proj-pos_earth) < np.linalg.norm(pos_moon-pos_earth)
     is_within_one_week = t < one_week_in_years
@@ -102,19 +100,18 @@ def detect_slow_orbits(t, y, masses, gravity_const, n_dim, n_bodies, radius):
         else:
             return 1
 
+
 # Detect apex of projectile orbit at sun to increase accuracy, event is not terminal
 def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius):
-    x = get_first_half_of_array(y)
-    x = x.reshape((n_dim, n_bodies))
-    v = get_second_half_of_array(y)
-    v = v.reshape((n_dim, n_bodies))
+    x_array = get_position_array(y, n_dim, n_bodies)
+    v_array = get_velocity_array(y, n_dim, n_bodies)
 
     idx_of_projectile = n_bodies-1
     idx_of_sun = 0
-    pos_proj  = x[:,idx_of_projectile]
-    pos_sun = x[:,idx_of_sun]
-    velocity_proj = v[:,idx_of_projectile]
-    velocity_sun = v[:,idx_of_sun]
+    pos_proj  = x_array[:,idx_of_projectile]
+    pos_sun = x_array[:,idx_of_sun]
+    velocity_proj = v_array[:,idx_of_projectile]
+    velocity_sun = v_array[:,idx_of_sun]
 
     relativ_pos_proj = pos_proj - pos_sun
     relativ_velocity_proj = velocity_proj - velocity_sun
@@ -159,19 +156,29 @@ def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radi
 
     return x_new, v_new
 
+####### Necessary due to the 1D (poc, velo, force) vector in solve_ivp #######
+
 def get_first_half_of_array(array):
     return array[:len(array)//2]
 
 def get_second_half_of_array(array):
     return array[len(array)//2:]
 
+def get_position_array(y, n_dim, n_bodies):
+    x_vec = get_first_half_of_array(y)
+    x_array = x_vec.reshape((n_dim, n_bodies))
+    return x_array
+
+def get_velocity_array(y, n_dim, n_bodies):
+    v_vec = get_second_half_of_array(y)
+    v_array = v_vec.reshape((n_dim, n_bodies))
+    return v_array
+
 def update_function(t, y, masses, gravity_const, n_dim, n_bodies, radius):
-    #debugging
-    x = get_first_half_of_array(y)
-    x = x.reshape((n_dim, n_bodies))
-    v = get_second_half_of_array(y)
-    dvdt = calc_massless_forces(x, masses, gravity_const).flatten()
-    res = np.concatenate((v, dvdt))
+    x_array = get_position_array(y, n_dim, n_bodies)
+    v_vec = get_second_half_of_array(y)
+    dvdt = calc_massless_forces(x_array, masses, gravity_const).flatten()
+    res = np.concatenate((v_vec, dvdt))
     return res
 
 def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
@@ -318,9 +325,7 @@ def total_energy(x, v, masses, g):
 def plot_trajectories_solarcentric(x_trajec, names, file_name):
     space_dim, n, t_max = x_trajec.shape
     solar_radius = 696342000 # in meters
-    au = 149597870700 # in meters
-    solar_radius_per_au =  au / solar_radius  # / scipy.constants.astronomical_unit
-    print("solar_radius_per_au: ", solar_radius_per_au)
+    solar_radius_per_au = scipy.constants.astronomical_unit / solar_radius  
     for i in range(n):
         plt.plot(x_trajec[0,i,:]*solar_radius_per_au, x_trajec[1,i,:]*solar_radius_per_au, label=names[i])
     plt.xlabel("x [Sun radii]")
@@ -371,9 +376,6 @@ if __name__ == "__main__":
     t0 = time.time() # start clock for timing
     dt = 3.0e-6 # time step in years
     t_max = 1.005 # maximum time in years
-
-    steps = int(t_max/dt) # number of time steps
-    print("dt: ", dt)
 
     print("Time step in seconds: ", dt*scipy.constants.year)
     print("Simulation length = ", t_max*scipy.constants.year/3600,  "hours", \
