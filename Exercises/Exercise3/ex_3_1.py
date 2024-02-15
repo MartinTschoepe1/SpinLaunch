@@ -45,13 +45,13 @@ def load_data(file_name):
 def calc_collision_forces(x, orig_forces, idx_of_coll_obj):
     space_dim, n = x.shape # dimension of space, number of bodies
     collision_forces = np.zeros((space_dim, n)) # array to store forces (6 bodies, 2 dimensions)
-    idx_of_projectile = n-1
+    idx_first_object = n-1
 
-    collison_vec = x[:,idx_of_coll_obj] - x[:,idx_of_projectile] # vector pointing from projectile to colliding object
+    collison_vec = x[:,idx_of_coll_obj] - x[:,idx_first_object] # vector pointing from projectile to colliding object
     collison_vec = collison_vec / np.linalg.norm(collison_vec) # normalize vector
-    projected_force = np.dot(orig_forces[:,idx_of_projectile], collison_vec) * collison_vec
+    projected_force = np.dot(orig_forces[:,idx_first_object], collison_vec) * collison_vec
 
-    collision_forces[:,idx_of_projectile] = - projected_force
+    collision_forces[:,idx_first_object] = - projected_force
     collision_forces[:,idx_of_coll_obj] = projected_force
 
     return collision_forces
@@ -65,12 +65,12 @@ def apply_force_correction(x, orig_forces, idx_of_coll_obj):
 def detect_surface_touch(x, r):
     collision = False
     n = x.shape[1] # number of bodies
-    idx_of_projectile = n-1
+    idx_first_object = n-1
     idx_of_coll_obj = np.nan # index of the colliding object. Can be between 0 and n-1
     for i in range(n-1):
-        current_pos_proj = x[:,idx_of_projectile] # current position of the projectile
+        current_pos_proj = x[:,idx_first_object] # current position of the projectile
         current_pos_obj = x[:,i] # current position of the object
-        collision_in_current_step = np.linalg.norm(current_pos_proj-current_pos_obj) < r[i]+r[idx_of_projectile]
+        collision_in_current_step = np.linalg.norm(current_pos_proj-current_pos_obj) < r[i]+r[idx_first_object]
 
         if collision_in_current_step:
             collision = True
@@ -82,7 +82,7 @@ def detect_surface_touch(x, r):
 # Numerical integration step, checking for collisions, and applying corrections
 def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radius):
     n = x.shape[1]
-    idx_of_projectile = n-1
+    idx_first_object = n-1
     orig_forces = forces(x, masses, gravity_const).transpose()
     massless_forces = orig_forces / masses[np.newaxis,:]
 
@@ -97,11 +97,11 @@ def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radi
         x_new = x + v * dt
 
         for i in range(n-1):
-            collison_vec = x_new[:,i] - x_new[:,idx_of_projectile]
-            if np.linalg.norm(collison_vec) < radius[i]+radius[idx_of_projectile]:
-                collison_depth = np.linalg.norm(collison_vec) - radius[i] - radius[idx_of_projectile]
+            collison_vec = x_new[:,i] - x_new[:,idx_first_object]
+            if np.linalg.norm(collison_vec) < radius[i]+radius[idx_first_object]:
+                collison_depth = np.linalg.norm(collison_vec) - radius[i] - radius[idx_first_object]
                 collison_vec = collison_vec / np.linalg.norm(collison_vec)
-                x_new[:,idx_of_projectile] =  x_new[:,idx_of_projectile] + collison_vec * collison_depth
+                x_new[:,idx_first_object] =  x_new[:,idx_first_object] + collison_vec * collison_depth
             
         v_new = v + resulting_messless_forces * dt
     else:
@@ -144,13 +144,13 @@ def update_function(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_ape
 def detect_collision_projectile(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached):
     x_array = get_position_array(y, n_dim, n_bodies)
 
-    idx_of_projectile = n_bodies-1
-    pos_proj  = x_array[:,idx_of_projectile] # current position of projectile
+    idx_first_object = n_bodies-1
+    pos_proj  = x_array[:,idx_first_object] # current position of projectile
     product_for_sign_change_criterion = 1.0
 
-    for idx in range(idx_of_projectile):
+    for idx in range(idx_first_object):
         pos_object = x_array[:,idx]
-        distance_between_surfaces = np.linalg.norm(pos_proj-pos_object) - radius[idx] + radius[idx_of_projectile]
+        distance_between_surfaces = np.linalg.norm(pos_proj-pos_object) - radius[idx] + radius[idx_first_object]
         product_for_sign_change_criterion *= distance_between_surfaces
     return product_for_sign_change_criterion
 
@@ -158,11 +158,11 @@ def detect_collision_projectile(t, y, masses, gravity_const, n_dim, n_bodies, ra
 def detect_slow_orbits(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached):
     x_array = get_position_array(y, n_dim, n_bodies)
 
-    idx_of_projectile = n_bodies-1
+    idx_first_object = n_bodies-1
     idx_of_earth = 1
     idx_of_moon = 2
     one_week_in_years = 1.0 / 52.0
-    pos_proj  = x_array[:,idx_of_projectile]
+    pos_proj  = x_array[:,idx_first_object]
     pos_earth = x_array[:,idx_of_earth]
     pos_moon  = x_array[:,idx_of_moon]
     
@@ -182,12 +182,12 @@ def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_a
     x_array = get_position_array(y, n_dim, n_bodies)
     v_array = get_velocity_array(y, n_dim, n_bodies)
 
-    idx_of_projectile = n_bodies-1
-    idx_of_sun = 0
-    relativ_pos_proj = get_connection_vector(x_array, idx_of_projectile, idx_of_sun)
+    idx_first_object = n_bodies-1
+    idx_second_object = 0
+    relativ_pos_proj = get_connection_vector(x_array, idx_first_object, idx_second_object)
 
-    velocity_proj = v_array[:,idx_of_projectile]
-    velocity_sun = v_array[:,idx_of_sun]
+    velocity_proj = v_array[:,idx_first_object]
+    velocity_sun = v_array[:,idx_second_object]
 
     relativ_velocity_proj = velocity_proj - velocity_sun
     abs_value_distance_to_sun = np.linalg.norm(relativ_pos_proj)
@@ -199,11 +199,10 @@ def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_a
 
     return angle_degree
 
-def get_connection_vector(x_array, idx_of_projectile, idx_of_sun):
-    pos_proj  = x_array[:,idx_of_projectile]
-    pos_sun = x_array[:,idx_of_sun]
-    relativ_pos_proj = pos_proj - pos_sun
-    return relativ_pos_proj
+def get_connection_vector(x_array, idx_first_object, idx_second_object):
+    pos1  = x_array[:,idx_first_object]
+    pos2 = x_array[:,idx_second_object]
+    return pos1 - pos2
 
 # Detect inner apex of projectile trajectory to increase accuracy, event is not terminal
 def detect_inner_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached):
@@ -221,12 +220,12 @@ def detect_outer_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius
 
 def detect_outer_solar_system(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached):
     x_array = get_position_array(y, n_dim, n_bodies)
-    idx_of_projectile = n_bodies-1
-    idx_of_sun = 0
+    idx_first_object = n_bodies-1
+    idx_second_object = 0
     distance_sun_jupiter = 5.2 # AU
-    pos_proj  = x_array[:,idx_of_projectile]
-    pos_sun = x_array[:,idx_of_sun]
-    distance_to_sun = np.linalg.norm(get_connection_vector(x_array, idx_of_projectile, idx_of_sun))
+    pos_proj  = x_array[:,idx_first_object]
+    pos_sun = x_array[:,idx_second_object]
+    distance_to_sun = np.linalg.norm(get_connection_vector(x_array, idx_first_object, idx_second_object))
     return distance_to_sun - distance_sun_jupiter
 
 def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
@@ -342,20 +341,18 @@ def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, colli
     return x_trajec, E_trajec, collision
 
 def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius, condition_list):
-    idx_of_projectile = x_init.shape[1]-1
+    idx_first_object = x_init.shape[1]-1
 
     for conditions in condition_list:
         collision = False
-        v_init[0:2,idx_of_projectile] += calc_initial_velocity(conditions.angle, conditions.velocity)
-        #debugging
+        v_init[0:2,idx_first_object] += calc_initial_velocity(conditions.angle, conditions.velocity)
         x_trajec, number_of_steps = sol_step(t_max, dt, x_init, v_init, m, g, radius)
-        # x_trajec, E_trajec, collision = simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, collision)
-        print("# of steps: ", number_of_steps)
+        print("# of steps: ", number_of_steps, "angle: ", conditions.angle, "velocity: ", conditions.velocity)
 
-        # if not collision:
         # plot_energy(E_trajec, "energy.pdf")
         # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
         plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric")
+
 
 # Calculate inital velocity vector of the projectile that needs to be added to its idle state
 def calc_initial_velocity(start_angle, velocity):
@@ -383,9 +380,11 @@ def total_energy(x, v, masses, g):
 def plot_trajectories_solarcentric(x_trajec, names, file_name):
     space_dim, n, t_max = x_trajec.shape
     solar_radius = 696342000 # in meters
-    solar_radius_per_au = scipy.constants.astronomical_unit / solar_radius  
-    for i in range(n):
-        plt.plot(x_trajec[0,i,:]*solar_radius_per_au, x_trajec[1,i,:]*solar_radius_per_au, label=names[i])
+    solar_radius_per_au = scipy.constants.astronomical_unit / solar_radius
+    x_trajec = x_trajec*solar_radius_per_au # Will not be saved after function call
+
+    for i in range(0,n,1):
+        plt.plot(x_trajec[0,i,:], x_trajec[1,i,:], label=names[i], marker='o', markersize=2)
     plt.xlabel("x [Sun radii]")
     plt.ylabel("y [Sun radii]")
     plt.xlim(-1.2*solar_radius_per_au, 1.2*solar_radius_per_au)
@@ -422,13 +421,23 @@ def plot_energy(E_trajec, file_name):
     plt.savefig(file_name)
     plt.show()
 
+# TODO: Check. This is Copilot code!
+# Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
+def plot_min_distance_to_sun(angle, velocity, min_distance_to_sun, file_name):
+    fig, ax = plt.subplots()
+    c = ax.pcolormesh(angle, velocity, min_distance_to_sun, cmap='viridis')
+    ax.set_xlabel('angle [°]')
+    ax.set_ylabel('velocity [AU/yr]')
+    fig.colorbar(c, ax=ax, label='minimal distance to sun [AU]')
+    plt.savefig(file_name)
+    plt.show()
 
 if __name__ == "__main__":
 
     names, x_init, v_init, m, radius, g = load_data("solar_system_projectile_radius_wo_mars.npz")
 
-    min_angle = -100
-    max_angle = -80
+    min_angle = -180
+    max_angle = -105
     min_velocity = 2.1
     max_velocity = 8.0 # AU/yr = 4744 m/s
     number_of_angles = 5
