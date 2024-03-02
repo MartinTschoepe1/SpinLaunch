@@ -8,21 +8,27 @@ from time import sleep
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
-
+import spin_launch_constants as slc
 
 class ProjectileInitialConditions:
-    def __init__(self, angle, velocity):
+    def __init__(self, angle, velocity, daytime):
         self.angle = angle
         self.velocity = velocity
+        self.daytime = daytime # in hours
         self.min_distance_to_sun = np.nan
         self.stop_criterion = np.nan
 
 # Define a function to create object of class ProjectileInitialConditions give a min and max angle and velocity
-def set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, number_of_angles, number_of_velocity_steps):
-    condition_array = np.zeros((number_of_angles, number_of_velocity_steps), dtype=ProjectileInitialConditions)
+def set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, min_daytime, max_daytime, \
+        number_of_angles, number_of_velocity_steps, number_of_daytimes):
+
+    condition_array = np.zeros((number_of_angles, number_of_velocity_steps, number_of_daytimes), dtype=ProjectileInitialConditions)
+
     for idx_angle, angle in enumerate(np.linspace(min_angle, max_angle, number_of_angles)):
         for idx_velocity, velocity in enumerate(np.linspace(min_velocity, max_velocity, number_of_velocity_steps)):
-            condition_array[idx_angle, idx_velocity] = ProjectileInitialConditions(angle, velocity)
+            for idx_daytime, daytime in enumerate(np.linspace(min_daytime, max_daytime, number_of_daytimes)):
+
+                condition_array[idx_angle, idx_velocity, idx_daytime] = ProjectileInitialConditions(angle, velocity, daytime)
 
     return condition_array
 
@@ -255,6 +261,8 @@ def get_stop_criterion(sol, idx_coll_obj):
                 stop_criterion = 7
         else:
             stop_criterion = 8
+    else:
+        stop_criterion = 8
     return stop_criterion
 
 
@@ -313,6 +321,7 @@ def integrator_step_collision_checked(x, v, dt, masses, gravity_const, forces, r
 
 ###### Numerical integration step functions ######
 
+#TODO: Check if the following functions are still needed!
 def step_euler(x, v, dt, masses, gravity_const):
     x_new = x + v * dt
     massless_forces = calc_massless_forces(x, masses, gravity_const)
@@ -320,6 +329,7 @@ def step_euler(x, v, dt, masses, gravity_const):
 
     return x_new, v_new
 
+#TODO: Check if the following functions are still needed!
 def calc_massless_forces(x, masses, gravity_const):
     orig_forces = forces(x, masses, gravity_const).transpose()
     massless_forces = orig_forces / masses[np.newaxis,:]
@@ -345,6 +355,30 @@ def forces(x, masses, g):
                 F[i,:] = F[i,:] + delta_F
                 F[j,:] = F[j,:] - delta_F
     return F
+
+# Warrning untested ChatGPT code! Please check if it works as expected!
+def air_density(altitude):
+    # Constants for the U.S. Standard Atmosphere model
+    rho0 = 1.225  # Air density at sea level (kg/m^3)
+    H = 8400      # Scale height (m)
+    H_in_au = H / scipy.constants.astronomical_unit
+    
+    # Calculate air density using the exponential decay model
+    rho = rho0 * np.exp(-altitude / H_in_au)
+    
+    return rho
+
+def force_drag(v_i, altitude, cd_constant, A):
+    # Calculate velocity magnitude
+    v_mag = np.linalg.norm(v_i)
+    
+    # Calculate air density at the given altitude
+    rho = air_density(altitude)
+    
+    # Calculate drag force using the constant drag coefficient and altitude-dependent air density
+    drag_force = -0.5 * rho * v_mag**2 * cd_constant * A * (v_i / v_mag)
+    
+    return drag_force
 
 
 
@@ -375,16 +409,29 @@ def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, colli
     return x_trajec, E_trajec, collision
 
 def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius, condition_array):
-    v_init_new = np.copy(v_init)
+    idx_earth = 1
     idx_projectile = x_init.shape[1]-1
     numb_of_simulations = condition_array.size
 
-    for numb, conditions in enumerate(condition_array.flatten()):
-        collision = False
-        v_init_new[0:2,idx_projectile] = v_init[0:2,idx_projectile] + calc_initial_velocity(conditions.angle, conditions.velocity)
-        x_trajec, number_of_steps, stop_criterion = sol_step(t_max, dt, x_init, v_init_new, m, g, radius)
 
-        # print("stop_criterion: ", dict_stop_criterion[stop_criterion])
+    for numb, conditions in enumerate(condition_array.flatten()):
+        x_init_new = np.copy(x_init)
+        v_init_new = np.copy(v_init)
+        # collision = False 
+
+        x_init_delta, v_init_delta = calc_init_pos_and_rest_speed(conditions.daytime, radius[idx_earth])
+
+        x_init_new[0:2,idx_projectile] += x_init_delta
+        v_init_new[0:2,idx_projectile] += v_init_delta
+
+        pos_earth = x_init_new[0:2,idx_earth]
+        pos_projectile = x_init_new[0:2,idx_projectile]
+        connection_vector = pos_projectile - pos_earth
+
+        v_init_new[0:2,idx_projectile] = v_init[0:2,idx_projectile] + \
+            calc_initial_velocity(conditions, connection_vector)
+        x_trajec, number_of_steps, stop_criterion = sol_step(t_max, dt, x_init_new, v_init_new, m, g, radius)
+
         print("Sim. #", numb, "of ", numb_of_simulations, "# of steps: ", number_of_steps, "angle: ", np.round(conditions.angle, 4),
                 "velocity: ", np.round(conditions.velocity, 3))
 
@@ -398,13 +445,31 @@ def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius, condition
     plot_min_distance_to_sun(condition_array, "min_distance_to_sun.pdf")
     plot_stop_criterion(condition_array, "stop_criterion.pdf")
 
+# daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
+def calc_init_pos_and_rest_speed(daytime, earth_radius_per_au):
+    x = earth_radius_per_au * np.cos(daytime * np.pi / 12) # fraction shortened, was 2*Pi/24
+    y = earth_radius_per_au * np.sin(daytime * np.pi / 12)
+
+    vx = - slc.rotation_speed_earth_in_au_year * np.sin(daytime * np.pi / 12)
+    vy = slc.rotation_speed_earth_in_au_year * np.cos(daytime * np.pi / 12)
+
+    init_pos_delta = np.array([x, y])
+    init_rest_speed_delta = np.array([vx, vy])
+    return init_pos_delta, init_rest_speed_delta
+
 # Calculate inital velocity vector of the projectile that needs to be added to its idle state
-def calc_initial_velocity(start_angle, velocity):
-    # Todo: determine angle between earth and projectile and add this angle to the start_angle
-    angle_rad = start_angle * np.pi / 180
-    v_x = velocity * np.cos(angle_rad)
-    v_y = velocity * np.sin(angle_rad)
-    return np.array([v_x, v_y])
+def calc_initial_velocity(conditions, connection_vector):
+    start_angle_deg = conditions.angle
+    projec_velocity = conditions.velocity
+    start_angle_rad = start_angle_deg * np.pi / 180
+    angle_earth_center_of_mass_to_proj = np.arctan2(connection_vector[1], connection_vector[0])
+    start_angle_rad = angle_earth_center_of_mass_to_proj + np.pi/2 - start_angle_rad
+
+    v_x = projec_velocity * np.cos(start_angle_rad)
+    v_y = projec_velocity * np.sin(start_angle_rad)
+
+    init_velocity_delta = np.array([v_x, v_y])
+    return init_velocity_delta
 
 # Calculate the minimal distance between the projectile and the sun
 def calc_min_distance_to_sun(x_trajec, radius):
@@ -454,7 +519,7 @@ def plot_trajectories_geocentric(x_trajec, names, file_name):
         distance_x = x_trajec[0,i,:] - x_trajec[0,1,:]
         distance_y = x_trajec[1,i,:] - x_trajec[1,1,:]
 
-        plt.plot(distance_x * scale_factor, distance_y * scale_factor, label=names[i])
+        plt.plot(distance_x * scale_factor, distance_y * scale_factor, label=names[i], marker='o', markersize=2)
     plt.setp(plt.gca().lines, linewidth=2)
     plt.xlabel("x [Earth radii]")
     plt.ylabel("y [Earth radii]")
@@ -478,33 +543,42 @@ def plot_energy(E_trajec, file_name):
 def convert_set_of_objects_into_arrays(condition_array, attribute_name):
     number_of_angles = condition_array.shape[0]
     number_of_velocity_steps = condition_array.shape[1]
+    number_of_daytimes = condition_array.shape[2]
     angle_array = np.zeros((number_of_angles))
     velocity_array = np.zeros((number_of_velocity_steps))
-    min_distance_to_sun_array = np.zeros((number_of_angles, number_of_velocity_steps))
+    daytimes_array = np.zeros((number_of_daytimes))
+    min_distance_to_sun_array = np.zeros((number_of_angles, number_of_velocity_steps, number_of_daytimes))
     
     for idx_angle in range(number_of_angles):
         for idx_velocity in range(number_of_velocity_steps):
-            angle_array[idx_angle] = condition_array[idx_angle, idx_velocity].angle
-            velocity_array[idx_velocity] = condition_array[idx_angle, idx_velocity].velocity
-            min_distance_to_sun_array[idx_angle, idx_velocity] = getattr(condition_array[idx_angle, idx_velocity],attribute_name)
+            for idx_daytime in range(number_of_daytimes):
+                current_conditions = condition_array[idx_angle, idx_velocity, idx_daytime]
+                angle_array[idx_angle] = current_conditions.angle
+                velocity_array[idx_velocity] = current_conditions.velocity
+                daytimes_array[idx_daytime] = current_conditions.daytime
+                min_distance_to_sun_array[idx_angle, idx_velocity, idx_daytime] = getattr(current_conditions,attribute_name)
     
-    return velocity_array, angle_array, min_distance_to_sun_array
+    return angle_array, velocity_array, daytimes_array, min_distance_to_sun_array
 
 # Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
 def plot_min_distance_to_sun(condition_array, file_name):
-    velocity_array, angle_array, min_distance_to_sun_array = convert_set_of_objects_into_arrays(condition_array, 'min_distance_to_sun')
+    angle_array, velocity_array, daytimes_array, min_distance_to_sun_array = \
+        convert_set_of_objects_into_arrays(condition_array, 'min_distance_to_sun')
 
+    #TODO: Save all these constants in a separate file
     conv_AU_yr_to_km_s = 4744
     conv_AU_to_solar_radius = 215
+    min_distance_to_sun_array = min_distance_to_sun_array*conv_AU_to_solar_radius
+    
+    angle_velo_array = min_distance_to_sun_array[:,:,0]
+
     x, y = np.meshgrid(velocity_array*conv_AU_yr_to_km_s, angle_array)
 
-    min_distance_to_sun_array = min_distance_to_sun_array*conv_AU_to_solar_radius
-
     fig, ax = plt.subplots()
-    c = ax.pcolormesh(x, y, min_distance_to_sun_array, cmap='viridis', \
+    c = ax.pcolormesh(x, y, angle_velo_array, cmap='viridis', \
         norm=colors.LogNorm(vmin=0.99, vmax=100))
 
-    ax.set_xlabel('velocity [km/s]')
+    ax.set_xlabel('velocity [m/s]')
     ax.set_ylabel('angle [°]')
     fig.colorbar(c, ax=ax, label='minimal distance to sun [solar radii]')
     plt.gcf().set_size_inches(18, 12)
@@ -512,11 +586,11 @@ def plot_min_distance_to_sun(condition_array, file_name):
     plt.show()
 
 def plot_stop_criterion(condition_array, file_name):
-    velocity_array, angle_array, stop_criterion_array = convert_set_of_objects_into_arrays(condition_array, 'stop_criterion')
-            
-    # dict_stop_criterion = {0: "no stop", 1: "time limit", 2: "outer apex", 3: "outer solar system", 4: "slow orbit", \
-    #     5: "sun collision", 6: "earth collision", 7: "collision with other object", 8: "Error with stop criterion"}
+    angle_array, velocity_array, daytimes_array, stop_criterion_array = \
+        convert_set_of_objects_into_arrays(condition_array, 'stop_criterion')
 
+    angle_velo_array = stop_criterion_array[:,:,0]
+            
     ticklabels = ['no stop', 'time limit', 'outer apex', 'outer solar system', 'slow orbit', \
         'sun collision', 'earth collision', 'collision with other object']
 
@@ -528,7 +602,7 @@ def plot_stop_criterion(condition_array, file_name):
     ax.set_ylabel('angle [°]')
 
     cmap = plt.get_cmap('tab10', 8)
-    c = ax.pcolormesh(x, y, stop_criterion_array, cmap=cmap,  vmin= -0.5, vmax=7.5)
+    c = ax.pcolormesh(x, y, angle_velo_array, cmap=cmap,  vmin= -0.5, vmax=7.5)
 
     cbar = fig.colorbar(c, ax=ax, label='stop criterion', ticks=[0, 1, 2, 3, 4, 5, 6, 7])
     cbar.set_ticklabels(ticklabels)
@@ -543,17 +617,28 @@ if __name__ == "__main__":
 
     names, x_init, v_init, m, radius, g = load_data("solar_system_projectile_radius_wo_mars.npz")
 
-    min_angle = -165
-    max_angle = -185
+    min_angle = 50
+    max_angle = 200
     min_velocity =  4.0
-    max_velocity = 11.0 # AU/yr = 4744 m/s
-    number_of_angles = 8
-    number_of_velocity_steps = 8
-    condition_array = set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, \
-        number_of_angles, number_of_velocity_steps)
+    max_velocity = 12.0 # AU/yr = 4744 m/s
+    min_daytime = 18
+    max_daytime = 18
+    number_of_angles = 15
+    number_of_velocity_steps = 15
+    number_of_daytimes = 1
+
+    # min_angle = -45
+    # max_angle = -45
+    # min_velocity =  7.0
+    # max_velocity =  7.0 # AU/yr = 4744 m/s
+    # number_of_angles = 1
+    # number_of_velocity_steps = 1
+
+    condition_array = set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, min_daytime, max_daytime, \
+        number_of_angles, number_of_velocity_steps, number_of_daytimes)
 
     # Set print options for numpy
-    np.set_printoptions(precision=4, suppress=True, linewidth=200)
+    np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
     t0 = time.time() # start clock for timing
     dt = 3.0e-6 # time step in years

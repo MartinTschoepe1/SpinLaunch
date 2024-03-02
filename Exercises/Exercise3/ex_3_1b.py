@@ -32,10 +32,11 @@ if __name__ == "__main__":
 
     # Add projectile to the system
     names = np.append(names, "Projectile")
-    x_init_projectile = np.array([[1.0 ], [-4.26343e-5]])
+    # 4.26343e-5 is the radius of the earth in AU
+    x_init_projectile = np.array([[1.0 ], [0.0]])
     x_init = np.concatenate((x_init, x_init_projectile), axis=1)
     # 0.09779 is the velocity of the earth rotation in AU/year
-    v_init_projectile = np.array([[0.09779], [6.28318531]])
+    v_init_projectile = np.array([[0.0], [6.28318531]])
     v_init = np.concatenate((v_init, v_init_projectile), axis=1)
     m = np.append(m, 1.67443e-22)
 
