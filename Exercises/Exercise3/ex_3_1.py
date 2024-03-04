@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
-import numpy as np
 import os
-import scipy.constants
 import time
-from time import sleep
-from scipy.integrate import solve_ivp
+
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
+from scipy.integrate import solve_ivp
+from scipy.constants import astronomical_unit as AU
+
 import spin_launch_constants as slc
 
 class ProjectileInitialConditions:
@@ -18,15 +19,23 @@ class ProjectileInitialConditions:
         self.min_distance_to_sun = np.nan
         self.stop_criterion = np.nan
 
+class IVP_solver_update_and_event_functions_args:
+    def __init__(self, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj):
+        self.masses = masses
+        self.gravity_const = gravity_const
+        self.n_dim = n_dim
+        self.n_bodies = n_bodies
+        self.radius = radius
+        self.is_apex_reached = is_apex_reached
+        self.idx_coll_obj = idx_coll_obj
+
 # Define a function to create object of class ProjectileInitialConditions give a min and max angle and velocity
-def set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, min_daytime, max_daytime, \
-        number_of_angles, number_of_velocity_steps, number_of_daytimes):
+def set_projectile_init_con(angle_values, velocity_values, daytime_values):
+    condition_array = np.zeros((len(angle_values), len(velocity_values), len(daytime_values)), dtype=ProjectileInitialConditions)
 
-    condition_array = np.zeros((number_of_angles, number_of_velocity_steps, number_of_daytimes), dtype=ProjectileInitialConditions)
-
-    for idx_angle, angle in enumerate(np.linspace(min_angle, max_angle, number_of_angles)):
-        for idx_velocity, velocity in enumerate(np.linspace(min_velocity, max_velocity, number_of_velocity_steps)):
-            for idx_daytime, daytime in enumerate(np.linspace(min_daytime, max_daytime, number_of_daytimes)):
+    for idx_angle, angle in enumerate(angle_values):
+        for idx_velocity, velocity in enumerate(velocity_values):
+            for idx_daytime, daytime in enumerate(daytime_values):
 
                 condition_array[idx_angle, idx_velocity, idx_daytime] = ProjectileInitialConditions(angle, velocity, daytime)
 
@@ -38,7 +47,7 @@ def determine_full_path(file_name):
     return file_path
 
 # load initil positions and masses from file
-def load_data(file_name):
+def load_solar_system_file(file_name):
     file_path = determine_full_path(file_name)
     data = np.load(file_path)
 
@@ -89,41 +98,8 @@ def detect_surface_touch(x, r):
     return collision, idx_of_coll_obj
 
 
-# Numerical integration step, checking for collisions, and applying corrections
-def step_euler_collision_corrected(x, v, dt, masses, gravity_const, forces, radius):
-    n = x.shape[1]
-    idx_first_object = n-1
-    orig_forces = forces(x, masses, gravity_const).transpose()
-    massless_forces = orig_forces / masses[np.newaxis,:]
-
-    x_test = x + v * dt
-    v_test = v + massless_forces * dt
-
-    collision, idx_of_coll_obj = detect_surface_touch(x_test, radius)
-
-    if collision:
-        corrected_forces = apply_force_correction(x, orig_forces, idx_of_coll_obj)
-        resulting_messless_forces = corrected_forces / masses[np.newaxis,:]
-        x_new = x + v * dt
-
-        for i in range(n-1):
-            collison_vec = x_new[:,i] - x_new[:,idx_first_object]
-            if np.linalg.norm(collison_vec) < radius[i]+radius[idx_first_object]:
-                collison_depth = np.linalg.norm(collison_vec) - radius[i] - radius[idx_first_object]
-                collison_vec = collison_vec / np.linalg.norm(collison_vec)
-                x_new[:,idx_first_object] =  x_new[:,idx_first_object] + collison_vec * collison_depth
-            
-        v_new = v + resulting_messless_forces * dt
-    else:
-        x_new = x_test
-        v_new = v_test
-
-    return x_new, v_new
-
-
 
 ###### Necessary due to the 1D (poc, velo, force) vector in solve_ivp ######
-
 def get_first_half_of_array(array):
     return array[:len(array)//2]
 
@@ -141,9 +117,15 @@ def get_velocity_array(y, n_dim, n_bodies):
     return v_array
 
 
+###### Vector operations ######
+def get_connection_vector(x_array, idx_first_object, idx_second_object):
+    pos1  = x_array[:,idx_first_object]
+    pos2 = x_array[:,idx_second_object]
+    return pos1 - pos2
+
+
 
 ###### Update function and event functions for solve_ivp ######
-
 def update_function(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj):
     x_array = get_position_array(y, n_dim, n_bodies)
     v_vec = get_second_half_of_array(y)
@@ -211,11 +193,6 @@ def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_a
 
     return angle_degree
 
-def get_connection_vector(x_array, idx_first_object, idx_second_object):
-    pos1  = x_array[:,idx_first_object]
-    pos2 = x_array[:,idx_second_object]
-    return pos1 - pos2
-
 # Detect inner apex of projectile trajectory to increase accuracy, event is not terminal
 def detect_inner_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj):
     angle_degree = detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached)
@@ -265,6 +242,18 @@ def get_stop_criterion(sol, idx_coll_obj):
         stop_criterion = 8
     return stop_criterion
 
+# Set event functions for solve_ivp
+def set_event_functions():
+    detect_collision_projectile.terminal = True
+    detect_collision_projectile.direction = 0
+    detect_slow_orbits.terminal = True
+    detect_slow_orbits.direction = 0
+    detect_inner_solar_apex.terminal = False
+    detect_inner_solar_apex.direction = -1.0
+    detect_outer_solar_apex.terminal = True
+    detect_outer_solar_apex.direction = 1.0
+    detect_outer_solar_system.terminal = True
+    detect_outer_solar_system.direction = 1.0
 
 def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
     time_interval = [0, t_max]
@@ -282,18 +271,12 @@ def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
     # and the last 3*n entries are the initial velocities
     x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
 
-    detect_collision_projectile.terminal = True
-    detect_collision_projectile.direction = 0
-    detect_slow_orbits.terminal = True
-    detect_slow_orbits.direction = 0
-    detect_inner_solar_apex.terminal = False
-    detect_inner_solar_apex.direction = -1.0
-    detect_outer_solar_apex.terminal = True
-    detect_outer_solar_apex.direction = 1.0
-    detect_outer_solar_system.terminal = True
-    detect_outer_solar_system.direction = 1.0
+    set_event_functions()
 
     args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj
+
+
+
     event_tuple = detect_collision_projectile, detect_slow_orbits, detect_inner_solar_apex, \
         detect_outer_solar_apex, detect_outer_solar_system
     # Method comparison:
@@ -359,12 +342,12 @@ def forces(x, masses, g):
 # Warrning untested ChatGPT code! Please check if it works as expected!
 def air_density(altitude):
     # Constants for the U.S. Standard Atmosphere model
-    rho0 = 1.225  # Air density at sea level (kg/m^3)
-    H = 8400      # Scale height (m)
-    H_in_au = H / scipy.constants.astronomical_unit
+    # rho0 = 1.225  # Air density at sea level (kg/m^3)
+    # H = 8400      # Scale height (m)
+    H_in_au = slc.H / AU
     
     # Calculate air density using the exponential decay model
-    rho = rho0 * np.exp(-altitude / H_in_au)
+    rho = slc.rho0 * np.exp(-altitude / H_in_au)
     
     return rho
 
@@ -497,8 +480,8 @@ def total_energy(x, v, masses, g):
 
 def plot_trajectories_solarcentric(x_trajec, names, file_name):
     space_dim, n, t_max = x_trajec.shape
-    solar_radius = 696342000 # in meters
-    solar_radius_per_au = scipy.constants.astronomical_unit / solar_radius
+    # solar_radius = 696342000 # in meters
+    solar_radius_per_au = AU / slc.solar_radius_in_meters
     x_trajec = x_trajec*solar_radius_per_au # Will not be saved after function call
 
     for i in range(0,n,1):
@@ -514,7 +497,8 @@ def plot_trajectories_solarcentric(x_trajec, names, file_name):
 
 def plot_trajectories_geocentric(x_trajec, names, file_name):
     space_dim, n, t_max = x_trajec.shape
-    scale_factor = scipy.constants.astronomical_unit / 6368000
+    # earth_radius_in_meter = 6368000
+    scale_factor = AU / slc.earth_radius_in_meter
     for i in range(n):
         distance_x = x_trajec[0,i,:] - x_trajec[0,1,:]
         distance_y = x_trajec[1,i,:] - x_trajec[1,1,:]
@@ -565,14 +549,12 @@ def plot_min_distance_to_sun(condition_array, file_name):
     angle_array, velocity_array, daytimes_array, min_distance_to_sun_array = \
         convert_set_of_objects_into_arrays(condition_array, 'min_distance_to_sun')
 
-    #TODO: Save all these constants in a separate file
-    conv_AU_yr_to_km_s = 4744
-    conv_AU_to_solar_radius = 215
+    conv_AU_to_solar_radius = AU / slc.solar_radius_in_meters
     min_distance_to_sun_array = min_distance_to_sun_array*conv_AU_to_solar_radius
     
     angle_velo_array = min_distance_to_sun_array[:,:,0]
 
-    x, y = np.meshgrid(velocity_array*conv_AU_yr_to_km_s, angle_array)
+    x, y = np.meshgrid(velocity_array*slc.conv_AU_yr_to_km_s, angle_array)
 
     fig, ax = plt.subplots()
     c = ax.pcolormesh(x, y, angle_velo_array, cmap='viridis', \
@@ -607,15 +589,14 @@ def plot_stop_criterion(condition_array, file_name):
     cbar = fig.colorbar(c, ax=ax, label='stop criterion', ticks=[0, 1, 2, 3, 4, 5, 6, 7])
     cbar.set_ticklabels(ticklabels)
 
-
     plt.gcf().set_size_inches(18, 12)
     plt.savefig(file_name)
     plt.show()
 
-
+# TODO: Extract the following procedure into a separate function
 if __name__ == "__main__":
 
-    names, x_init, v_init, m, radius, g = load_data("solar_system_projectile_radius_wo_mars.npz")
+    names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars.npz")
 
     min_angle = 50
     max_angle = 200
@@ -623,9 +604,13 @@ if __name__ == "__main__":
     max_velocity = 12.0 # AU/yr = 4744 m/s
     min_daytime = 18
     max_daytime = 18
-    number_of_angles = 15
-    number_of_velocity_steps = 15
+    number_of_angles = 10
+    number_of_velocity_steps = 10
     number_of_daytimes = 1
+
+    angle_values = np.linspace(min_angle, max_angle, number_of_angles)
+    velocity_values = np.linspace(min_velocity, max_velocity, number_of_velocity_steps)
+    daytime_values = np.linspace(min_daytime, max_daytime, number_of_daytimes)
 
     # min_angle = -45
     # max_angle = -45
@@ -634,8 +619,9 @@ if __name__ == "__main__":
     # number_of_angles = 1
     # number_of_velocity_steps = 1
 
-    condition_array = set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, min_daytime, max_daytime, \
-        number_of_angles, number_of_velocity_steps, number_of_daytimes)
+    condition_array = set_projectile_init_con(angle_values, velocity_values, daytime_values)
+    # condition_array = set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, min_daytime, max_daytime, \
+    #     number_of_angles, number_of_velocity_steps, number_of_daytimes)
 
     # Set print options for numpy
     np.set_printoptions(precision=7, suppress=True, linewidth=200)
