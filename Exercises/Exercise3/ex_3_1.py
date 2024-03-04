@@ -19,16 +19,6 @@ class ProjectileInitialConditions:
         self.min_distance_to_sun = np.nan
         self.stop_criterion = np.nan
 
-class IVP_solver_update_and_event_functions_args:
-    def __init__(self, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj):
-        self.masses = masses
-        self.gravity_const = gravity_const
-        self.n_dim = n_dim
-        self.n_bodies = n_bodies
-        self.radius = radius
-        self.is_apex_reached = is_apex_reached
-        self.idx_coll_obj = idx_coll_obj
-
 # Define a function to create object of class ProjectileInitialConditions give a min and max angle and velocity
 def set_projectile_init_con(angle_values, velocity_values, daytime_values):
     condition_array = np.zeros((len(angle_values), len(velocity_values), len(daytime_values)), dtype=ProjectileInitialConditions)
