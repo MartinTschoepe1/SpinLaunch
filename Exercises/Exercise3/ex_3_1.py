@@ -186,7 +186,12 @@ def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_a
 # Detect inner apex of projectile trajectory to increase accuracy, event is not terminal
 def detect_inner_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj):
     angle_degree = detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached)
-    if (angle_degree < 0 and is_apex_reached[0] == False): is_apex_reached[0] = True
+
+    # distance_projectile_to_sun = np.linalg.norm(get_connection_vector(get_position_array(y, n_dim, n_bodies), 0, n_bodies-1))
+    # distance_earth_to_sun = np.linalg.norm(get_connection_vector(get_position_array(y, n_dim, n_bodies), 0, 1))
+    # is_late_stage_reached =  distance_projectile_to_sun > 1.2*distance_earth_to_sun
+    # is_late_stage_reached = False
+    # if (angle_degree < 0 and is_apex_reached[0] == False and is_late_stage_reached): is_apex_reached[0] = True
     return angle_degree
 
 # Detect outer apex after the first inner apex of projectile trajectory to terminate simulation, run time optimization
@@ -213,9 +218,9 @@ def get_stop_criterion(sol, idx_coll_obj):
     if (sol.status == 0):
         stop_criterion = 1
     elif (sol.status == 1):
+        # if (sol.t_events[3].size > 0):
+            # stop_criterion = 2
         if (sol.t_events[3].size > 0):
-            stop_criterion = 2
-        elif (sol.t_events[4].size > 0):
             stop_criterion = 3
         elif (sol.t_events[1].size > 0):
             stop_criterion = 4
@@ -240,12 +245,10 @@ def set_event_functions():
     detect_slow_orbits.direction = 0
     detect_inner_solar_apex.terminal = False
     detect_inner_solar_apex.direction = -1.0
-    detect_outer_solar_apex.terminal = True
-    detect_outer_solar_apex.direction = 1.0
     detect_outer_solar_system.terminal = True
     detect_outer_solar_system.direction = 1.0
 
-def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
+def sol_step(t_max, x_init, v_init, masses, gravity_const, radius):
     time_interval = [0, t_max]
     n_dim, n_bodies = x_init.shape
     is_apex_reached = [False]
@@ -262,17 +265,13 @@ def sol_step(t_max, dt, x_init, v_init, masses, gravity_const, radius):
     x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
 
     set_event_functions()
-
     args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj
 
-
-
-    event_tuple = detect_collision_projectile, detect_slow_orbits, detect_inner_solar_apex, \
-        detect_outer_solar_apex, detect_outer_solar_system
+    event_tuple = detect_collision_projectile, detect_slow_orbits, detect_inner_solar_apex, detect_outer_solar_system
     # Method comparison:
     # Time: RK45 (30.50s), RK23 (168.53s), DOP853 (31.15s), Radau (210.90s), BDF (75.36s), LSODA (25.92s)
     sol = solve_ivp(update_function, time_interval, x_v_init_flat, args=args_tuple, \
-        first_step=dt, events=event_tuple, rtol=1e-10, atol=1e-7)
+        first_step=1e-4, events=event_tuple, rtol=1e-7)
 
     number_of_steps = len(sol.t)
 
@@ -381,29 +380,33 @@ def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, colli
     E_trajec = E_trajec[:i]
     return x_trajec, E_trajec, collision
 
-def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius, condition_array):
-    idx_earth = 1
+def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions):
     idx_projectile = x_init.shape[1]-1
-    numb_of_simulations = condition_array.size
+    x_init_new = np.copy(x_init)
+    v_init_new = np.copy(v_init)
+    
+    x_init_new[0:2,idx_projectile] = x_init_new[0:2,idx_projectile] + x_init_delta
+    v_init_new[0:2,idx_projectile] = v_init_new[0:2,idx_projectile] + v_init_delta
+    
+    connection_vector = x_init_new[0:2,idx_projectile] - x_init_new[0:2,idx_earth]
+    
+    v_init_new[0:2,idx_projectile] = v_init[0:2,idx_projectile] + calc_initial_velocity(conditions, connection_vector)
+    return x_init_new, v_init_new
 
+
+def single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_array):
+    number_of_daytimes = condition_array.shape[2]
+    idx_earth = 1
+    numb_of_simulations = condition_array.size
+    t0 = time.time() # start clock for timing
+    show_figs = False
 
     for numb, conditions in enumerate(condition_array.flatten()):
-        x_init_new = np.copy(x_init)
-        v_init_new = np.copy(v_init)
-        # collision = False 
-
         x_init_delta, v_init_delta = calc_init_pos_and_rest_speed(conditions.daytime, radius[idx_earth])
 
-        x_init_new[0:2,idx_projectile] += x_init_delta
-        v_init_new[0:2,idx_projectile] += v_init_delta
+        x_init_new, v_init_new = get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions)
 
-        pos_earth = x_init_new[0:2,idx_earth]
-        pos_projectile = x_init_new[0:2,idx_projectile]
-        connection_vector = pos_projectile - pos_earth
-
-        v_init_new[0:2,idx_projectile] = v_init[0:2,idx_projectile] + \
-            calc_initial_velocity(conditions, connection_vector)
-        x_trajec, number_of_steps, stop_criterion = sol_step(t_max, dt, x_init_new, v_init_new, m, g, radius)
+        x_trajec, number_of_steps, stop_criterion = sol_step(t_max, x_init_new, v_init_new, m, g, radius)
 
         print("Sim. #", numb, "of ", numb_of_simulations, "# of steps: ", number_of_steps, "angle: ", np.round(conditions.angle, 4),
                 "velocity: ", np.round(conditions.velocity, 3))
@@ -411,12 +414,17 @@ def single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius, condition
         conditions.min_distance_to_sun = calc_min_distance_to_sun(x_trajec, radius)
         conditions.stop_criterion = stop_criterion
 
-        # plot_energy(E_trajec, "energy.pdf")
-        # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric")
-        # plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric")
+        # plot_energy(E_trajec, "energy.pdf", show_figs)
+        # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric", show_figs)
+        # plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric", show_figs)
 
-    plot_min_distance_to_sun(condition_array, "min_distance_to_sun.pdf")
-    plot_stop_criterion(condition_array, "stop_criterion.pdf")
+    print("Time elapsed: ", time.time()-t0, "seconds")
+    
+    for idx_daytime in range(number_of_daytimes):
+        daytime = condition_array[0,0,idx_daytime].daytime
+        plot_min_distance_to_sun(condition_array, "min_distance_to_sun", idx_daytime, daytime, show_figs)
+        plot_stop_criterion(condition_array, "stop_criterion", idx_daytime, daytime, show_figs)
+
 
 # daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
 def calc_init_pos_and_rest_speed(daytime, earth_radius_per_au):
@@ -455,7 +463,7 @@ def calc_min_distance_to_sun(x_trajec, radius):
     return min_distance_to_sun_center_of_mass
 
 
-###### Plotting functions ######
+###### Auxiliary functions for plotting ######
 
 def total_energy(x, v, masses, g):
     n = x.shape[1] # number of bodies
@@ -468,7 +476,53 @@ def total_energy(x, v, masses, g):
                 E = E - g * masses[i] * masses[j] / np.linalg.norm(distance_vector) # potential energy
     return E
 
-def plot_trajectories_solarcentric(x_trajec, names, file_name):
+# Extracts the angle, velocity and minimal distance to sun/stop criterium from the condition array
+def convert_set_of_objects_into_arrays(condition_array, attribute_name):
+    number_of_angles, number_of_velocity_steps, number_of_daytimes = condition_array.shape
+    
+    angle_array = np.zeros((number_of_angles))
+    velocity_array = np.zeros((number_of_velocity_steps))
+    daytimes_array = np.zeros((number_of_daytimes))
+    min_distance_to_sun_array = np.zeros((number_of_angles, number_of_velocity_steps, number_of_daytimes))
+    
+    for idx_angle in range(number_of_angles):
+        for idx_velocity in range(number_of_velocity_steps):
+            for idx_daytime in range(number_of_daytimes):
+                current_conditions = condition_array[idx_angle, idx_velocity, idx_daytime]
+                angle_array[idx_angle] = current_conditions.angle
+                velocity_array[idx_velocity] = current_conditions.velocity
+                daytimes_array[idx_daytime] = current_conditions.daytime
+                min_distance_to_sun_array[idx_angle, idx_velocity, idx_daytime] = getattr(current_conditions,attribute_name)
+    
+    return angle_array, velocity_array, daytimes_array, min_distance_to_sun_array
+
+# Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
+def plot_preparation(velocity_array, angle_array):
+    x, y = np.meshgrid(velocity_array*slc.conv_AU_yr_to_km_s, angle_array)
+    fig, ax = plt.subplots()
+    ax.set_xlabel('velocity [m/s]')
+    ax.set_ylabel('angle [°]')
+    plt.gcf().set_size_inches(18, 12)
+    return ax, x, y, fig
+
+def get_daytime_filename(file_name, idx_daytime):
+    return file_name + "_daytime_" + str(idx_daytime) + ".pdf"
+
+def show_or_close_figure(fig, show_figs):
+    if show_figs:
+        plt.show()
+    else:
+        plt.close(fig)
+
+def set_plot_size_and_margins():
+    plt.gcf().set_size_inches(8, 6)
+    plt.subplots_adjust(left=0.10, right=0.97, top=0.95, bottom=0.10)
+    # return 
+
+
+###### Plotting functions ######
+
+def plot_trajectories_solarcentric(x_trajec, names, file_name, show_figs):
     space_dim, n, t_max = x_trajec.shape
     # solar_radius = 696342000 # in meters
     solar_radius_per_au = AU / slc.solar_radius_in_meters
@@ -485,7 +539,7 @@ def plot_trajectories_solarcentric(x_trajec, names, file_name):
     plt.savefig(file_name + ".pdf")
     plt.show()
 
-def plot_trajectories_geocentric(x_trajec, names, file_name):
+def plot_trajectories_geocentric(x_trajec, names, file_name, show_figs):
     space_dim, n, t_max = x_trajec.shape
     # earth_radius_in_meter = 6368000
     scale_factor = AU / slc.earth_radius_in_meter
@@ -504,7 +558,7 @@ def plot_trajectories_geocentric(x_trajec, names, file_name):
     plt.savefig(file_name + ".pdf")
     plt.show()
 
-def plot_energy(E_trajec, file_name):
+def plot_energy(E_trajec, file_name, show_figs):
     plt.plot(E_trajec)
     plt.xlabel("time step")
     plt.ylabel("total energy")
@@ -513,116 +567,86 @@ def plot_energy(E_trajec, file_name):
     plt.savefig(file_name)
     plt.show()
 
-# Extracts the angle, velocity and minimal distance to sun/stop criterium from the condition array
-def convert_set_of_objects_into_arrays(condition_array, attribute_name):
-    number_of_angles = condition_array.shape[0]
-    number_of_velocity_steps = condition_array.shape[1]
-    number_of_daytimes = condition_array.shape[2]
-    angle_array = np.zeros((number_of_angles))
-    velocity_array = np.zeros((number_of_velocity_steps))
-    daytimes_array = np.zeros((number_of_daytimes))
-    min_distance_to_sun_array = np.zeros((number_of_angles, number_of_velocity_steps, number_of_daytimes))
-    
-    for idx_angle in range(number_of_angles):
-        for idx_velocity in range(number_of_velocity_steps):
-            for idx_daytime in range(number_of_daytimes):
-                current_conditions = condition_array[idx_angle, idx_velocity, idx_daytime]
-                angle_array[idx_angle] = current_conditions.angle
-                velocity_array[idx_velocity] = current_conditions.velocity
-                daytimes_array[idx_daytime] = current_conditions.daytime
-                min_distance_to_sun_array[idx_angle, idx_velocity, idx_daytime] = getattr(current_conditions,attribute_name)
-    
-    return angle_array, velocity_array, daytimes_array, min_distance_to_sun_array
-
-# Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
-def plot_min_distance_to_sun(condition_array, file_name):
+def plot_min_distance_to_sun(condition_array, file_name, idx_daytime, daytime, show_figs):
     angle_array, velocity_array, daytimes_array, min_distance_to_sun_array = \
         convert_set_of_objects_into_arrays(condition_array, 'min_distance_to_sun')
-
+    
     conv_AU_to_solar_radius = AU / slc.solar_radius_in_meters
     min_distance_to_sun_array = min_distance_to_sun_array*conv_AU_to_solar_radius
+    angle_velo_array = min_distance_to_sun_array[:,:,idx_daytime]
+
+    ax, x, y, fig = plot_preparation(velocity_array, angle_array)
     
-    angle_velo_array = min_distance_to_sun_array[:,:,0]
-
-    x, y = np.meshgrid(velocity_array*slc.conv_AU_yr_to_km_s, angle_array)
-
-    fig, ax = plt.subplots()
     c = ax.pcolormesh(x, y, angle_velo_array, cmap='viridis', \
         norm=colors.LogNorm(vmin=0.99, vmax=100))
 
-    ax.set_xlabel('velocity [m/s]')
-    ax.set_ylabel('angle [°]')
-    fig.colorbar(c, ax=ax, label='minimal distance to sun [solar radii]')
-    plt.gcf().set_size_inches(18, 12)
-    plt.savefig(file_name)
-    plt.show()
+    set_plot_size_and_margins()
 
-def plot_stop_criterion(condition_array, file_name):
+    fig.colorbar(c, ax=ax, label='minimal distance to sun [solar radii]')
+    plt.savefig(get_daytime_filename(file_name, daytime))
+
+    show_or_close_figure(fig, show_figs)
+
+
+def plot_stop_criterion(condition_array, file_name, idx_daytime, daytime, show_figs):
     angle_array, velocity_array, daytimes_array, stop_criterion_array = \
         convert_set_of_objects_into_arrays(condition_array, 'stop_criterion')
 
-    angle_velo_array = stop_criterion_array[:,:,0]
+    angle_velo_array = stop_criterion_array[:,:,idx_daytime]
             
     ticklabels = ['no stop', 'time limit', 'outer apex', 'outer solar system', 'slow orbit', \
         'sun collision', 'earth collision', 'collision with other object']
 
-    x, y = np.meshgrid(velocity_array, angle_array)
-
-    fig, ax = plt.subplots()
-
-    ax.set_xlabel('velocity [AU/yr]')
-    ax.set_ylabel('angle [°]')
+    ax, x, y, fig = plot_preparation(velocity_array, angle_array)
 
     cmap = plt.get_cmap('tab10', 8)
     c = ax.pcolormesh(x, y, angle_velo_array, cmap=cmap,  vmin= -0.5, vmax=7.5)
 
+    set_plot_size_and_margins()
+
     cbar = fig.colorbar(c, ax=ax, label='stop criterion', ticks=[0, 1, 2, 3, 4, 5, 6, 7])
     cbar.set_ticklabels(ticklabels)
 
-    plt.gcf().set_size_inches(18, 12)
-    plt.savefig(file_name)
-    plt.show()
+    plt.savefig(get_daytime_filename(file_name, daytime))
+
+    show_or_close_figure(fig, show_figs)
+
 
 # TODO: Extract the following procedure into a separate function
 if __name__ == "__main__":
 
     names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars.npz")
 
-    min_angle = 50
+    min_angle = -20
     max_angle = 200
     min_velocity =  4.0
-    max_velocity = 12.0 # AU/yr = 4744 m/s
-    min_daytime = 18
-    max_daytime = 18
-    number_of_angles = 10
-    number_of_velocity_steps = 10
-    number_of_daytimes = 1
+    max_velocity = 16.0 # AU/yr = 4744 m/s
+    min_daytime = 0
+    max_daytime = 21
+    number_of_angles = 15
+    number_of_velocity_steps = 15
+    number_of_daytimes = 8
+
+    # Optimal low energy trajectory
+    # min_angle = -45
+    # max_angle = -45
+    # min_velocity =  7.0
+    # max_velocity =  7.0 # AU/yr = 4744 m/s
+    # min_daytime = 18
+    # max_daytime = 18
+    # number_of_angles = 1
+    # number_of_velocity_steps = 1
+    # number_of_daytimes = 1
 
     angle_values = np.linspace(min_angle, max_angle, number_of_angles)
     velocity_values = np.linspace(min_velocity, max_velocity, number_of_velocity_steps)
     daytime_values = np.linspace(min_daytime, max_daytime, number_of_daytimes)
 
-    # min_angle = -45
-    # max_angle = -45
-    # min_velocity =  7.0
-    # max_velocity =  7.0 # AU/yr = 4744 m/s
-    # number_of_angles = 1
-    # number_of_velocity_steps = 1
-
     condition_array = set_projectile_init_con(angle_values, velocity_values, daytime_values)
-    # condition_array = set_projectile_init_con(min_angle, max_angle, min_velocity, max_velocity, min_daytime, max_daytime, \
-    #     number_of_angles, number_of_velocity_steps, number_of_daytimes)
 
     # Set print options for numpy
     np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
-    t0 = time.time() # start clock for timing
-    dt = 3.0e-6 # time step in years
-    t_max = 1.005 # maximum time in years
+    t_max = 3.005 # maximum time in years
 
-    single_simulation(x_init, v_init, dt, m, g, forces, t_max, radius, condition_array)
-
-    t1 = time.time()
-    print("Time elapsed: ", t1-t0, "seconds")
-    
-    
+    single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_array)
