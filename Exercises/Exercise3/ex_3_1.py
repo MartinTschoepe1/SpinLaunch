@@ -284,22 +284,22 @@ def sol_step(t_max, x_init, v_init, masses, gravity_const, radius):
     return trajectories, number_of_steps, stop_criterion
 
 # Define function to apply numerical integration step and check for collisions
-def integrator_step_collision_checked(x, v, dt, masses, gravity_const, forces, radius):
-    x_new, v_new = step_euler(x, v, dt, masses, gravity_const)
-    (collision, _ ) = detect_surface_touch(x_new, radius)
-    return x_new, v_new, collision
+# def integrator_step_collision_checked(x, v, dt, masses, gravity_const, forces, radius):
+#     x_new, v_new = step_euler(x, v, dt, masses, gravity_const)
+#     (collision, _ ) = detect_surface_touch(x_new, radius)
+#     return x_new, v_new, collision
 
 
 
 ###### Numerical integration step functions ######
 
 #TODO: Check if the following functions are still needed!
-def step_euler(x, v, dt, masses, gravity_const):
-    x_new = x + v * dt
-    massless_forces = calc_massless_forces(x, masses, gravity_const)
-    v_new = v + massless_forces * dt
+# def step_euler(x, v, dt, masses, gravity_const):
+#     x_new = x + v * dt
+#     massless_forces = calc_massless_forces(x, masses, gravity_const)
+#     v_new = v + massless_forces * dt
 
-    return x_new, v_new
+#     return x_new, v_new
 
 #TODO: Check if the following functions are still needed!
 def calc_massless_forces(x, masses, gravity_const):
@@ -323,16 +323,14 @@ def forces(x, masses, g):
             # if i != j: # do not calculate force of body on itself
             if i < j: # do not calculate force of body on itself
                 distance_vector = (x[:,i] - x[:,j]) # vector pointing from body j to body i
-                delta_F = force(distance_vector, masses[i], masses[j], g)
-                F[i,:] = F[i,:] + delta_F
-                F[j,:] = F[j,:] - delta_F
+                delta_F_gravity = force(distance_vector, masses[i], masses[j], g)
+                F[i,:] = F[i,:] + delta_F_gravity
+                F[j,:] = F[j,:] - delta_F_gravity
+    
     return F
 
-# Warrning untested ChatGPT code! Please check if it works as expected!
+# Warning untested ChatGPT code! Please check if it works as expected!
 def air_density(altitude):
-    # Constants for the U.S. Standard Atmosphere model
-    # rho0 = 1.225  # Air density at sea level (kg/m^3)
-    # H = 8400      # Scale height (m)
     H_in_au = slc.H / AU
     
     # Calculate air density using the exponential decay model
@@ -340,8 +338,12 @@ def air_density(altitude):
     
     return rho
 
-def force_drag(v_i, altitude, cd_constant, A):
+# Warning untested ChatGPT code! Please check if it works as expected!
+def force_drag(v_i, altitude):
     # Calculate velocity magnitude
+    radius = 1.0 # m
+    A = radius**2 * np.pi # m^2
+    cd_constant = 0.5 # unitless
     v_mag = np.linalg.norm(v_i)
     
     # Calculate air density at the given altitude
@@ -357,28 +359,28 @@ def force_drag(v_i, altitude, cd_constant, A):
 ###### Solar system simulation functions ######
 
 # Run simulation for a given time or until a collision occurs
-def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, collision):
-    space_dim, n = x_init.shape # number of bodies, dimension of space
-    t = 0.0 # start time
-    steps = int(t_max/dt) + 1 # number of time steps
-    x = x_init # initialize position array
-    v = v_init # initialize velocity array
-    x_trajec = np.zeros((space_dim, n, steps)) # array to store trajectory
-    v_trajec = np.zeros((space_dim, n, steps)) # array to store velocity
-    E_trajec = np.zeros(steps) # array to store total energy
-    i = 0 # index of current time step
-    while i < steps and not collision:
-        x_trajec[:,:,i] = x
-        v_trajec[:,:,i] = v
-        E_trajec[i] = total_energy(x, v, m, g)
-        x, v, collision = integrator_step_collision_checked(x, v, dt, m, g, forces, radius)
-        t = t + dt
-        i = i + 1
-    # remove unused entries
-    x_trajec = x_trajec[:,:,:i]
-    v_trajec = v_trajec[:,:,:i]
-    E_trajec = E_trajec[:i]
-    return x_trajec, E_trajec, collision
+# def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, collision):
+#     space_dim, n = x_init.shape # number of bodies, dimension of space
+#     t = 0.0 # start time
+#     steps = int(t_max/dt) + 1 # number of time steps
+#     x = x_init # initialize position array
+#     v = v_init # initialize velocity array
+#     x_trajec = np.zeros((space_dim, n, steps)) # array to store trajectory
+#     v_trajec = np.zeros((space_dim, n, steps)) # array to store velocity
+#     E_trajec = np.zeros(steps) # array to store total energy
+#     i = 0 # index of current time step
+#     while i < steps and not collision:
+#         x_trajec[:,:,i] = x
+#         v_trajec[:,:,i] = v
+#         E_trajec[i] = total_energy(x, v, m, g)
+#         x, v, collision = integrator_step_collision_checked(x, v, dt, m, g, forces, radius)
+#         t = t + dt
+#         i = i + 1
+#     # remove unused entries
+#     x_trajec = x_trajec[:,:,:i]
+#     v_trajec = v_trajec[:,:,:i]
+#     E_trajec = E_trajec[:i]
+#     return x_trajec, E_trajec, collision
 
 def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions):
     idx_projectile = x_init.shape[1]-1
@@ -623,9 +625,9 @@ if __name__ == "__main__":
     max_velocity = 16.0 # AU/yr = 4744 m/s
     min_daytime = 0
     max_daytime = 21
-    number_of_angles = 15
-    number_of_velocity_steps = 15
-    number_of_daytimes = 8
+    number_of_angles = 4
+    number_of_velocity_steps = 4
+    number_of_daytimes = 2
 
     # Optimal low energy trajectory
     # min_angle = -45
