@@ -4,5 +4,6 @@ rho0 = 1.225  # Air density at sea level (kg/m^3)
 H = 8400      # Scale height (m)
 earth_radius_in_meter = 6368000
 conv_AU_yr_to_km_s = 4744
-
-
+year_in_seconds = 365.25 * 24 * 60 * 60
+earth_mass = 5.97219e24 # in kg
+distance_sun_jupiter_in_m = 7.7857e11
