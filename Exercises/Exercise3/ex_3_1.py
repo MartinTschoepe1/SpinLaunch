@@ -42,10 +42,10 @@ def load_solar_system_file(file_name):
     data = np.load(file_path)
 
     names = data["names"] # names of the orbiting bodies
-    x_init = data["x_init"] # initial positions of the orbiting bodies in AU
-    v_init = data["v_init"] # initial velocities of the orbiting bodies in AU/yr
-    m = data["m"] # masses of the orbiting bodies in earth masses
-    radius = data["radius"] # radii of the orbiting bodies in AU
+    x_init = data["x_init"] # initial positions of the orbiting bodies in m
+    v_init = data["v_init"] # initial velocities of the orbiting bodies in m/s
+    m = data["m"] # masses of the orbiting bodies in kg
+    radius = data["radius"] # radii of the orbiting bodies in m
     g = data["g"] # one gravitational constant for all bodies
 
     return names, x_init, v_init, m, radius, g
@@ -109,7 +109,7 @@ def get_velocity_array(y, n_dim, n_bodies):
 
 ###### Vector operations ######
 def get_connection_vector(x_array, idx_first_object, idx_second_object):
-    pos1  = x_array[:,idx_first_object]
+    pos1 = x_array[:,idx_first_object]
     pos2 = x_array[:,idx_second_object]
     return pos1 - pos2
 
@@ -119,7 +119,7 @@ def get_connection_vector(x_array, idx_first_object, idx_second_object):
 def update_function(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj):
     x_array = get_position_array(y, n_dim, n_bodies)
     v_vec = get_second_half_of_array(y)
-    dvdt = calc_massless_forces(x_array, masses, gravity_const).flatten()
+    dvdt = calc_massless_forces(x_array, v_vec, masses, gravity_const).flatten()
     res = np.concatenate((v_vec, dvdt))
     return res
 
@@ -145,13 +145,13 @@ def detect_slow_orbits(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_
     idx_first_object = n_bodies-1
     idx_of_earth = 1
     idx_of_moon = 2
-    six_days_in_years = 6.0 / 365.0
+    six_days_in_seconds = 6.0 * 24 * 60 * 60
     pos_proj  = x_array[:,idx_first_object]
     pos_earth = x_array[:,idx_of_earth]
     pos_moon  = x_array[:,idx_of_moon]
     
     is_projectile_within_moon_orbit = np.linalg.norm(pos_proj-pos_earth) < np.linalg.norm(pos_moon-pos_earth)
-    is_within_six_days = t < six_days_in_years
+    is_within_six_days = t < six_days_in_seconds
 
     if (is_within_six_days):
         return 1
@@ -207,7 +207,7 @@ def detect_outer_solar_system(t, y, masses, gravity_const, n_dim, n_bodies, radi
     x_array = get_position_array(y, n_dim, n_bodies)
     idx_first_object = n_bodies-1
     idx_second_object = 0
-    distance_sun_jupiter = 5.2 # AU
+    distance_sun_jupiter = slc.distance_sun_jupiter_in_m
     pos_proj  = x_array[:,idx_first_object]
     pos_sun = x_array[:,idx_second_object]
     distance_to_sun = np.linalg.norm(get_connection_vector(x_array, idx_first_object, idx_second_object))
@@ -266,12 +266,12 @@ def sol_step(t_max, x_init, v_init, masses, gravity_const, radius):
 
     set_event_functions()
     args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj
-
+ 
     event_tuple = detect_collision_projectile, detect_slow_orbits, detect_inner_solar_apex, detect_outer_solar_system
     # Method comparison:
     # Time: RK45 (30.50s), RK23 (168.53s), DOP853 (31.15s), Radau (210.90s), BDF (75.36s), LSODA (25.92s)
-    sol = solve_ivp(update_function, time_interval, x_v_init_flat, args=args_tuple, \
-        first_step=1e-4, events=event_tuple, rtol=1e-7)
+    sol = solve_ivp(update_function, time_interval, x_v_init_flat, args=args_tuple, first_step=1e-10, \
+        events=event_tuple, rtol=1e-7)
 
     number_of_steps = len(sol.t)
 
@@ -283,40 +283,34 @@ def sol_step(t_max, x_init, v_init, masses, gravity_const, radius):
     get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
     return trajectories, number_of_steps, stop_criterion
 
-# Define function to apply numerical integration step and check for collisions
-# def integrator_step_collision_checked(x, v, dt, masses, gravity_const, forces, radius):
-#     x_new, v_new = step_euler(x, v, dt, masses, gravity_const)
-#     (collision, _ ) = detect_surface_touch(x_new, radius)
-#     return x_new, v_new, collision
-
-
 
 ###### Numerical integration step functions ######
-
-#TODO: Check if the following functions are still needed!
-# def step_euler(x, v, dt, masses, gravity_const):
-#     x_new = x + v * dt
-#     massless_forces = calc_massless_forces(x, masses, gravity_const)
-#     v_new = v + massless_forces * dt
-
-#     return x_new, v_new
-
-#TODO: Check if the following functions are still needed!
-def calc_massless_forces(x, masses, gravity_const):
-    orig_forces = forces(x, masses, gravity_const).transpose()
+def calc_massless_forces(x, v, masses, gravity_const):
+    orig_forces = forces(x, v, masses, gravity_const).transpose()
     massless_forces = orig_forces / masses[np.newaxis,:]
     return massless_forces
 
 
 
 ###### Force calculation functions ######
+def convert_AU_yr_to_m_s(velocity):
+    one_year_in_seconds = 365*24*60*60
+    return velocity * AU / one_year_in_seconds
+
+def convert_m_s_to_AU_yr(velocity):
+    one_year_in_seconds = 365*24*60*60
+    return velocity / AU * one_year_in_seconds
 
 def force(r_ij, m_i, m_j, g):
     force = - g * m_i * m_j / np.linalg.norm(r_ij)**3 * r_ij
     return force
 
-def forces(x, masses, g):
+def forces(x, v, masses, g):
     space_dim, n = x.shape # number of bodies, dimension of space
+    v = v.reshape((space_dim, n))
+    idx_eath = 1
+    idx_projectile = n-1
+
     F = np.zeros((n, space_dim)) # array to store forces (6 bodies, 2 dimensions)
     for i in range(n): 
         for j in range(n):
@@ -326,61 +320,41 @@ def forces(x, masses, g):
                 delta_F_gravity = force(distance_vector, masses[i], masses[j], g)
                 F[i,:] = F[i,:] + delta_F_gravity
                 F[j,:] = F[j,:] - delta_F_gravity
-    
+
+    dist_proj_earth = np.linalg.norm(x[:,idx_projectile] - x[:,idx_eath])
+    altitude_in_m = dist_proj_earth - slc.earth_radius_in_meter
+    relative_velocity = v[:,idx_projectile] - v[:,idx_eath]
+    delta_F_drag_projec = force_drag(relative_velocity, altitude_in_m)
+    # F[idx_projectile,:] = F[idx_projectile,:] + delta_F_drag_projec
+
     return F
 
 # Warning untested ChatGPT code! Please check if it works as expected!
-def air_density(altitude):
-    H_in_au = slc.H / AU
-    
+def air_density(altitude):    
     # Calculate air density using the exponential decay model
-    rho = slc.rho0 * np.exp(-altitude / H_in_au)
+    rho = slc.rho0 * np.exp(-altitude / slc.H)
     
     return rho
 
 # Warning untested ChatGPT code! Please check if it works as expected!
 def force_drag(v_i, altitude):
     # Calculate velocity magnitude
-    radius = 1.0 # m
+    radius = 0.30 # m
     A = radius**2 * np.pi # m^2
     cd_constant = 0.5 # unitless
     v_mag = np.linalg.norm(v_i)
     
     # Calculate air density at the given altitude
     rho = air_density(altitude)
-    
+
     # Calculate drag force using the constant drag coefficient and altitude-dependent air density
     drag_force = -0.5 * rho * v_mag**2 * cd_constant * A * (v_i / v_mag)
-    
+
     return drag_force
 
 
 
 ###### Solar system simulation functions ######
-
-# Run simulation for a given time or until a collision occurs
-# def simulate_solar_system(x_init, v_init, dt, m, g, forces, t_max, radius, collision):
-#     space_dim, n = x_init.shape # number of bodies, dimension of space
-#     t = 0.0 # start time
-#     steps = int(t_max/dt) + 1 # number of time steps
-#     x = x_init # initialize position array
-#     v = v_init # initialize velocity array
-#     x_trajec = np.zeros((space_dim, n, steps)) # array to store trajectory
-#     v_trajec = np.zeros((space_dim, n, steps)) # array to store velocity
-#     E_trajec = np.zeros(steps) # array to store total energy
-#     i = 0 # index of current time step
-#     while i < steps and not collision:
-#         x_trajec[:,:,i] = x
-#         v_trajec[:,:,i] = v
-#         E_trajec[i] = total_energy(x, v, m, g)
-#         x, v, collision = integrator_step_collision_checked(x, v, dt, m, g, forces, radius)
-#         t = t + dt
-#         i = i + 1
-#     # remove unused entries
-#     x_trajec = x_trajec[:,:,:i]
-#     v_trajec = v_trajec[:,:,:i]
-#     E_trajec = E_trajec[:i]
-#     return x_trajec, E_trajec, collision
 
 def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions):
     idx_projectile = x_init.shape[1]-1
@@ -401,10 +375,11 @@ def single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_arr
     idx_earth = 1
     numb_of_simulations = condition_array.size
     t0 = time.time() # start clock for timing
-    show_figs = False
+    # show_figs = False
+    show_figs = True
 
     for numb, conditions in enumerate(condition_array.flatten()):
-        x_init_delta, v_init_delta = calc_init_pos_and_rest_speed(conditions.daytime, radius[idx_earth])
+        x_init_delta, v_init_delta = calc_init_pos_and_rest_speed(conditions.daytime)
 
         x_init_new, v_init_new = get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions)
 
@@ -425,16 +400,19 @@ def single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_arr
     for idx_daytime in range(number_of_daytimes):
         daytime = condition_array[0,0,idx_daytime].daytime
         plot_min_distance_to_sun(condition_array, "min_distance_to_sun", idx_daytime, daytime, show_figs)
-        plot_stop_criterion(condition_array, "stop_criterion", idx_daytime, daytime, show_figs)
+        # plot_stop_criterion(condition_array, "stop_criterion", idx_daytime, daytime, show_figs)
 
 
 # daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
-def calc_init_pos_and_rest_speed(daytime, earth_radius_per_au):
-    x = earth_radius_per_au * np.cos(daytime * np.pi / 12) # fraction shortened, was 2*Pi/24
-    y = earth_radius_per_au * np.sin(daytime * np.pi / 12)
+def calc_init_pos_and_rest_speed(daytime):
+    offset = 9000 # Altitude offset for projectile in m, majorly influences drag force
+    x = (slc.earth_radius_in_meter + offset) * np.cos(daytime * np.pi / 12) # fraction shortened, was 2*Pi/24
+    y = (slc.earth_radius_in_meter + offset) * np.sin(daytime * np.pi / 12)
 
-    vx = - slc.rotation_speed_earth_in_au_year * np.sin(daytime * np.pi / 12)
-    vy = slc.rotation_speed_earth_in_au_year * np.cos(daytime * np.pi / 12)
+    earth_rotation_speed = slc.rotation_speed_earth_in_au_year * AU
+
+    vx = - earth_rotation_speed * np.sin(daytime * np.pi / 12)
+    vy = earth_rotation_speed * np.cos(daytime * np.pi / 12)
 
     init_pos_delta = np.array([x, y])
     init_rest_speed_delta = np.array([vx, vy])
@@ -466,7 +444,6 @@ def calc_min_distance_to_sun(x_trajec, radius):
 
 
 ###### Auxiliary functions for plotting ######
-
 def total_energy(x, v, masses, g):
     n = x.shape[1] # number of bodies
     E = 0.0 # total energy
@@ -500,7 +477,7 @@ def convert_set_of_objects_into_arrays(condition_array, attribute_name):
 
 # Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
 def plot_preparation(velocity_array, angle_array):
-    x, y = np.meshgrid(velocity_array*slc.conv_AU_yr_to_km_s, angle_array)
+    x, y = np.meshgrid(velocity_array, angle_array)
     fig, ax = plt.subplots()
     ax.set_xlabel('velocity [m/s]')
     ax.set_ylabel('angle [°]')
@@ -526,16 +503,15 @@ def set_plot_size_and_margins():
 
 def plot_trajectories_solarcentric(x_trajec, names, file_name, show_figs):
     space_dim, n, t_max = x_trajec.shape
-    # solar_radius = 696342000 # in meters
-    solar_radius_per_au = AU / slc.solar_radius_in_meters
-    x_trajec = x_trajec*solar_radius_per_au # Will not be saved after function call
+    solar_radius_per_m = 1.0 / slc.solar_radius_in_meters
+    x_trajec = x_trajec*solar_radius_per_m # Will not be saved after function call
 
     for i in range(0,n,1):
         plt.plot(x_trajec[0,i,:], x_trajec[1,i,:], label=names[i], marker='o', markersize=2)
     plt.xlabel("x [Sun radii]")
     plt.ylabel("y [Sun radii]")
-    plt.xlim(-6*solar_radius_per_au, 6*solar_radius_per_au)
-    plt.ylim(-6*solar_radius_per_au, 6*solar_radius_per_au)
+    plt.xlim(-300, 300)
+    plt.ylim(-300, 300)
     plt.gcf().set_size_inches(12, 12)
     plt.legend()
     plt.savefig(file_name + ".pdf")
@@ -543,18 +519,20 @@ def plot_trajectories_solarcentric(x_trajec, names, file_name, show_figs):
 
 def plot_trajectories_geocentric(x_trajec, names, file_name, show_figs):
     space_dim, n, t_max = x_trajec.shape
-    # earth_radius_in_meter = 6368000
-    scale_factor = AU / slc.earth_radius_in_meter
+    idx_earth = 1
+    idx_proj = n-1
+    scale_factor = 1000
+    inital_dist_proj_earth = x_trajec[:,idx_proj,0] - x_trajec[:,idx_earth,0]
     for i in range(n):
-        distance_x = x_trajec[0,i,:] - x_trajec[0,1,:]
-        distance_y = x_trajec[1,i,:] - x_trajec[1,1,:]
+        distance_x = x_trajec[0,i,:] - x_trajec[0,idx_earth,:] - inital_dist_proj_earth[0]
+        distance_y = x_trajec[1,i,:] - x_trajec[1,idx_earth,:] - inital_dist_proj_earth[1]
 
-        plt.plot(distance_x * scale_factor, distance_y * scale_factor, label=names[i], marker='o', markersize=2)
+        plt.plot(distance_x / scale_factor, distance_y / scale_factor, label=names[i], marker='o', markersize=2)
     plt.setp(plt.gca().lines, linewidth=2)
-    plt.xlabel("x [Earth radii]")
-    plt.ylabel("y [Earth radii]")
-    plt.xlim(-100, 100)
-    plt.ylim(-100, 100)
+    plt.xlabel("x [km]")
+    plt.ylabel("y [km]")
+    plt.xlim(-500000, 500000)
+    plt.ylim(-500000, 500000)
     plt.gcf().set_size_inches(12, 12)
     plt.legend()
     plt.savefig(file_name + ".pdf")
@@ -573,8 +551,8 @@ def plot_min_distance_to_sun(condition_array, file_name, idx_daytime, daytime, s
     angle_array, velocity_array, daytimes_array, min_distance_to_sun_array = \
         convert_set_of_objects_into_arrays(condition_array, 'min_distance_to_sun')
     
-    conv_AU_to_solar_radius = AU / slc.solar_radius_in_meters
-    min_distance_to_sun_array = min_distance_to_sun_array*conv_AU_to_solar_radius
+    conv_m_to_solar_radius = 1.0 / slc.solar_radius_in_meters
+    min_distance_to_sun_array = min_distance_to_sun_array*conv_m_to_solar_radius
     angle_velo_array = min_distance_to_sun_array[:,:,idx_daytime]
 
     ax, x, y, fig = plot_preparation(velocity_array, angle_array)
@@ -588,7 +566,6 @@ def plot_min_distance_to_sun(condition_array, file_name, idx_daytime, daytime, s
     plt.savefig(get_daytime_filename(file_name, daytime))
 
     show_or_close_figure(fig, show_figs)
-
 
 def plot_stop_criterion(condition_array, file_name, idx_daytime, daytime, show_figs):
     angle_array, velocity_array, daytimes_array, stop_criterion_array = \
@@ -617,23 +594,24 @@ def plot_stop_criterion(condition_array, file_name, idx_daytime, daytime, show_f
 # TODO: Extract the following procedure into a separate function
 if __name__ == "__main__":
 
-    names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars.npz")
+    names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
+    km_to_m = 1000
 
     min_angle = -20
     max_angle = 200
-    min_velocity =  4.0
-    max_velocity = 16.0 # AU/yr = 4744 m/s
+    min_velocity =  10*km_to_m
+    max_velocity = 100*km_to_m
     min_daytime = 0
     max_daytime = 21
-    number_of_angles = 4
-    number_of_velocity_steps = 4
-    number_of_daytimes = 2
+    number_of_angles = 15
+    number_of_velocity_steps = 15
+    number_of_daytimes = 4
 
     # Optimal low energy trajectory
-    # min_angle = -45
-    # max_angle = -45
-    # min_velocity =  7.0
-    # max_velocity =  7.0 # AU/yr = 4744 m/s
+    # min_angle = 90
+    # max_angle = 90
+    # min_velocity =   35*km_to_m
+    # max_velocity =   45*km_to_m
     # min_daytime = 18
     # max_daytime = 18
     # number_of_angles = 1
@@ -649,6 +627,64 @@ if __name__ == "__main__":
     # Set print options for numpy
     np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
-    t_max = 3.005 # maximum time in years
+    t_max = 2e7 # maximum time in years
+    # t_max = 1.005 # maximum time in years
 
     single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_array)
+
+
+# Velocity needed for solar impact Without drag force: 30 km/s
+# -----------------------------------------------------------
+#Velocity and mountain highed needed for solar impact with drag force with 1m radius.
+# Offset [km] |   Velocity [km/s]
+#     0       |   100 000
+#     1       |    40 000
+#     2       |    18 000
+#     3       |     8 500
+#     4       |     4 500
+#     5       |     2 600
+#     6       |     1 600
+#     7       |     1 000
+#     8       |       700
+#     9       |       470
+# ...
+#    28       |        40
+
+# Velocity and mountain highed needed for solar impact with drag force with 50cm radius.
+# Offset [km] |   Velocity [km/s]
+#     0       |      220
+#     1       |      176
+#     2       |      144
+#     3       |      120
+#     4       |      104
+#     5       |       90
+#     6       |       80
+#     7       |       72
+#     8       |       64
+#     9       |       60
+
+# Velocity and mountain highed needed for solar impact with drag force with 30cm radius.
+# Offset [km] |   Velocity [km/s]
+#     0       |       61
+#     1       |       56
+#     2       |       52
+#     3       |       49
+#     4       |       46
+#     5       |       44
+#     6       |       42
+#     7       |       40
+#     8       |       39
+#     9       |       38
+
+# Velocity and mountain highed needed for solar impact with drag force with 25cm radius.
+# Offset [km] |   Velocity [km/s]
+#     0       |       49
+#     1       |       46
+#     2       |       43,5
+#     3       |       42
+#     4       |       40
+#     5       |       39
+#     6       |       37,5
+#     7       |       36,5
+#     8       |       35,5
+#     9       |       35
