@@ -4,6 +4,7 @@ import numpy as np
 import os
 import scipy.constants
 import ex_3_1
+import spin_launch_constants as slc
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -49,14 +50,14 @@ if __name__ == "__main__":
     au = scipy.constants.au
 
     radius = np.array([])
-    radius = np.append(radius, 6.96342e8 / au) # Add radius of sun in AU
-    radius = np.append(radius, 6.371e6   / au) # Radius of earth
-    radius = np.append(radius, 1737.1e3  / au) # Radius of moon
-    radius = np.append(radius, 3396.2e3  / au) # Radius of mars
-    radius = np.append(radius, 69911e3   / au) # Radius of Jupiter
-    radius = np.append(radius, 6051.8e3  / au) # Radius of Venus
-    radius = np.append(radius, 2439.7e3  / au) # Radius of Mercury
-    radius = np.append(radius, 1         / au) # Radius of projectile
+    radius = np.append(radius, 6.96342e8) # Add radius of sun in AU
+    radius = np.append(radius, slc.earth_radius_in_meter) # Radius of earth
+    radius = np.append(radius, 1737.1e3) # Radius of moon
+    radius = np.append(radius, 3396.2e3) # Radius of mars
+    radius = np.append(radius, 69911e3 ) # Radius of Jupiter
+    radius = np.append(radius, 6051.8e3) # Radius of Venus
+    radius = np.append(radius, 2439.7e3) # Radius of Mercury
+    radius = np.append(radius, 1       ) # Radius of projectile
 
     new_file_name3 = "solar_system_projectile_radius.npz"
     new_file_path3 = ex_3_1.determine_full_path(new_file_name3)
@@ -72,4 +73,15 @@ if __name__ == "__main__":
     new_file_name4 = "solar_system_projectile_radius_wo_mars.npz"
     new_file_path4 = ex_3_1.determine_full_path(new_file_name4)
     np.savez(new_file_path4, names=names, x_init=x_init, v_init=v_init, m=m, radius=radius, g=g)
+
+    # Convert the system to SI units
+    x_init = x_init * au
+    v_init = v_init * au / slc.year_in_seconds
+    m = m * slc.earth_mass
+    g = 6.67430e-11
+
+    new_file_name5 = "solar_system_projectile_radius_wo_mars_SI.npz"
+    new_file_path5 = ex_3_1.determine_full_path(new_file_name5)
+    np.savez(new_file_path5, names=names, x_init=x_init, v_init=v_init, m=m, radius=radius, g=g)
+
 
