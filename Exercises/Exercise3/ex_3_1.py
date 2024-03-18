@@ -301,8 +301,13 @@ def convert_m_s_to_AU_yr(velocity):
     one_year_in_seconds = 365*24*60*60
     return velocity / AU * one_year_in_seconds
 
+# Code in this function was restrucutred after Warning: overflow encountered in scalar power.
 def force(r_ij, m_i, m_j, g):
-    force = - g * m_i * m_j / np.linalg.norm(r_ij)**3 * r_ij
+    abs_r_ij = np.linalg.norm(r_ij)
+    frac1 = m_i / abs_r_ij
+    frac2 = m_j / abs_r_ij
+    frac3 = r_ij / abs_r_ij
+    force = - g * frac1 * frac2 * frac3
     return force
 
 def forces(x, v, masses, g):
@@ -323,10 +328,13 @@ def forces(x, v, masses, g):
 
     dist_proj_earth = np.linalg.norm(x[:,idx_projectile] - x[:,idx_eath])
     altitude_in_m = dist_proj_earth - slc.earth_radius_in_meter
+    if (altitude_in_m < 0):
+        altitude_in_m = 0
+
     relative_velocity = v[:,idx_projectile] - v[:,idx_eath]
     delta_F_drag_projec = force_drag(relative_velocity, altitude_in_m)
-    # F[idx_projectile,:] = F[idx_projectile,:] + delta_F_drag_projec
-
+    F[idx_projectile,:] = F[idx_projectile,:] + delta_F_drag_projec
+ 
     return F
 
 # Warning untested ChatGPT code! Please check if it works as expected!
@@ -338,19 +346,36 @@ def air_density(altitude):
 
 # Warning untested ChatGPT code! Please check if it works as expected!
 def force_drag(v_i, altitude):
-    # Calculate velocity magnitude
-    radius = 0.30 # m
-    A = radius**2 * np.pi # m^2
-    cd_constant = 0.5 # unitless
-    v_mag = np.linalg.norm(v_i)
-    
     # Calculate air density at the given altitude
+    if (altitude < 0):
+        print("Warning: altitude is negative: ", altitude)
     rho = air_density(altitude)
+    shape = v_i.shape
 
-    # Calculate drag force using the constant drag coefficient and altitude-dependent air density
-    drag_force = -0.5 * rho * v_mag**2 * cd_constant * A * (v_i / v_mag)
+    if (rho == 0.0):
+        return np.zeros(shape)
+    else:
+        # Calculate velocity magnitude
+        radius = 0.30 # m
+        A = radius**2 * np.pi # m^2
+        cd_constant = 0.5 # unitless
+        v_mag = np.linalg.norm(v_i)
+        if (v_mag == np.inf):
+            print("v_i: ", v_i)
+            v_mag = max(v_i)
+            print("v_mag: ", v_mag)
 
-    return drag_force
+        # Calculate drag force using the constant drag coefficient and altitude-dependent air density
+        drag_force = -0.5 * rho * v_mag**2 * cd_constant * A * (v_i / v_mag)
+        # if (np.isnan(drag_force).any()):
+        # time.sleep(0.02)
+        # print("v_i: ", v_i)
+        # print("v_mag: ", v_mag)
+        # print("rho: ", rho)
+        # print("A: ", A)
+        # print("drag_force: ", drag_force)
+
+        return drag_force
 
 
 
@@ -385,8 +410,8 @@ def single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_arr
 
         x_trajec, number_of_steps, stop_criterion = sol_step(t_max, x_init_new, v_init_new, m, g, radius)
 
-        print("Sim. #", numb, "of ", numb_of_simulations, "# of steps: ", number_of_steps, "angle: ", np.round(conditions.angle, 4),
-                "velocity: ", np.round(conditions.velocity, 3))
+        print("Sim. #", numb, "of ", numb_of_simulations, "# of steps: ", number_of_steps, " daytime: ", conditions.daytime,
+                "angle: ", np.round(conditions.angle, 4), "velocity: ", np.round(conditions.velocity, 3))
 
         conditions.min_distance_to_sun = calc_min_distance_to_sun(x_trajec, radius)
         conditions.stop_criterion = stop_criterion
@@ -400,7 +425,7 @@ def single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_arr
     for idx_daytime in range(number_of_daytimes):
         daytime = condition_array[0,0,idx_daytime].daytime
         plot_min_distance_to_sun(condition_array, "min_distance_to_sun", idx_daytime, daytime, show_figs)
-        # plot_stop_criterion(condition_array, "stop_criterion", idx_daytime, daytime, show_figs)
+        plot_stop_criterion(condition_array, "stop_criterion", idx_daytime, daytime, show_figs)
 
 
 # daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
@@ -495,7 +520,7 @@ def show_or_close_figure(fig, show_figs):
 
 def set_plot_size_and_margins():
     plt.gcf().set_size_inches(8, 6)
-    plt.subplots_adjust(left=0.10, right=0.97, top=0.95, bottom=0.10)
+    plt.subplots_adjust(left=0.10, right=0.95, top=0.95, bottom=0.10)
     # return 
 
 
@@ -590,101 +615,48 @@ def plot_stop_criterion(condition_array, file_name, idx_daytime, daytime, show_f
 
     show_or_close_figure(fig, show_figs)
 
-
-# TODO: Extract the following procedure into a separate function
-if __name__ == "__main__":
-
-    names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
+def set_parameter_space():
     km_to_m = 1000
-
+    
     min_angle = -20
     max_angle = 200
     min_velocity =  10*km_to_m
     max_velocity = 100*km_to_m
     min_daytime = 0
     max_daytime = 21
+    number_of_daytimes = 4
     number_of_angles = 15
     number_of_velocity_steps = 15
-    number_of_daytimes = 4
-
+    
     # Optimal low energy trajectory
-    # min_angle = 90
-    # max_angle = 90
-    # min_velocity =   35*km_to_m
-    # max_velocity =   45*km_to_m
-    # min_daytime = 18
-    # max_daytime = 18
+    # min_angle =  90
+    # max_angle =  90
+    # min_velocity =   10*km_to_m
+    # max_velocity =   10*km_to_m
+    # min_daytime = 7
+    # max_daytime = 7
+    # number_of_daytimes = 1
     # number_of_angles = 1
     # number_of_velocity_steps = 1
-    # number_of_daytimes = 1
-
+    
     angle_values = np.linspace(min_angle, max_angle, number_of_angles)
     velocity_values = np.linspace(min_velocity, max_velocity, number_of_velocity_steps)
     daytime_values = np.linspace(min_daytime, max_daytime, number_of_daytimes)
-
+    
     condition_array = set_projectile_init_con(angle_values, velocity_values, daytime_values)
+    return condition_array
+
+
+# TODO: Extract the following procedure into a separate function
+if __name__ == "__main__":
+
+    names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
+
+    condition_array = set_parameter_space()
 
     # Set print options for numpy
     np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
-    t_max = 2e7 # maximum time in years
-    # t_max = 1.005 # maximum time in years
+    t_max = 1.05*slc.year_in_seconds # maximum time in years
 
     single_simulation(x_init, v_init, m, g, forces, t_max, radius, condition_array)
-
-
-# Velocity needed for solar impact Without drag force: 30 km/s
-# -----------------------------------------------------------
-#Velocity and mountain highed needed for solar impact with drag force with 1m radius.
-# Offset [km] |   Velocity [km/s]
-#     0       |   100 000
-#     1       |    40 000
-#     2       |    18 000
-#     3       |     8 500
-#     4       |     4 500
-#     5       |     2 600
-#     6       |     1 600
-#     7       |     1 000
-#     8       |       700
-#     9       |       470
-# ...
-#    28       |        40
-
-# Velocity and mountain highed needed for solar impact with drag force with 50cm radius.
-# Offset [km] |   Velocity [km/s]
-#     0       |      220
-#     1       |      176
-#     2       |      144
-#     3       |      120
-#     4       |      104
-#     5       |       90
-#     6       |       80
-#     7       |       72
-#     8       |       64
-#     9       |       60
-
-# Velocity and mountain highed needed for solar impact with drag force with 30cm radius.
-# Offset [km] |   Velocity [km/s]
-#     0       |       61
-#     1       |       56
-#     2       |       52
-#     3       |       49
-#     4       |       46
-#     5       |       44
-#     6       |       42
-#     7       |       40
-#     8       |       39
-#     9       |       38
-
-# Velocity and mountain highed needed for solar impact with drag force with 25cm radius.
-# Offset [km] |   Velocity [km/s]
-#     0       |       49
-#     1       |       46
-#     2       |       43,5
-#     3       |       42
-#     4       |       40
-#     5       |       39
-#     6       |       37,5
-#     7       |       36,5
-#     8       |       35,5
-#     9       |       35
