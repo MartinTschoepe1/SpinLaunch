@@ -234,25 +234,27 @@ def detect_outer_solar_system(t, y, masses, gravity_const, n_dim, n_bodies, radi
 def get_stop_criterion(sol, idx_coll_obj):
     
     if (sol.status == 0):
-        stop_criterion = 1
+        stop_criterion = 0 # time limit reached
     elif (sol.status == 1):
-        # if (sol.t_events[3].size > 0):
-            # stop_criterion = 2
         if (sol.t_events[3].size > 0):
-            stop_criterion = 3
+            stop_criterion = 1 # outer solar system reached
         elif (sol.t_events[1].size > 0):
-            stop_criterion = 4
+            stop_criterion = 2 # slow orbit reached
         elif (sol.t_events[0].size > 0):
             if (idx_coll_obj[0] == 0):
-                stop_criterion = 5
+                stop_criterion = 3 # sun collision
             elif (idx_coll_obj[0] == 1):
-                stop_criterion = 6
+                stop_criterion = 4 # earth collision
+            elif (idx_coll_obj[0] == 2):
+                stop_criterion = 5 # moon collision
+            elif (idx_coll_obj[0] == 5):
+                stop_criterion = 6 # mercury collision
             else:
-                stop_criterion = 7
+                stop_criterion = 7 # collision with other object
         else:
-            stop_criterion = 8
+            stop_criterion = 8 # no stop criterion reached
     else:
-        stop_criterion = 8
+        stop_criterion = 8 # no stop criterion reached
     return stop_criterion
 
 # Set event functions for solve_ivp
@@ -652,8 +654,8 @@ def plot_stop_criterion(condition_array, idx_daytime, daytime, show_figs, use_dr
 
     angle_velo_array = stop_criterion_array[:,:,idx_daytime]
             
-    ticklabels = ['no stop', 'time limit', 'outer apex', 'outer solar system', 'slow orbit', \
-        'sun collision', 'earth collision', 'collision with other object']
+    ticklabels = ['time limit', 'outer solar system', 'slow orbit', \
+        'sun collision', 'earth collision', 'moon collision', 'mercury collision', 'collision with other object']
 
     ax, x, y, fig = plot_preparation(velocity_array, angle_array)
 
@@ -679,8 +681,8 @@ def set_parameter_space():
     min_daytime = 18
     max_daytime = 18
     number_of_daytimes = 1
-    number_of_angles =  80
-    number_of_velocity_steps =  80
+    number_of_angles =  20
+    number_of_velocity_steps =  20
     
     # Optimal low energy trajectory
     # min_angle =  90
@@ -706,7 +708,7 @@ if __name__ == "__main__":
 
     names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
 
-    use_drag = True
+    use_drag = False
     use_solar_force = True
 
     condition_array = set_parameter_space()
@@ -714,7 +716,9 @@ if __name__ == "__main__":
     # Set print options for numpy
     np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
-    t_max = 1.05*slc.year_in_seconds # maximum time in years
+    prefac = 3.05
+
+    t_max = prefac*slc.year_in_seconds # maximum time in years
 
     single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag, use_solar_force)
 
@@ -722,8 +726,7 @@ if __name__ == "__main__":
 # Implementierung:
 # 1. Komplett andere Farbe für Kollision mit Sonne
 # 2. Daten berechnung vom Plotten entkoppeln
-# 3. Rubrik "Outer Apex" und "no stop" entfernen, dafür Kollision mit Mond hinzufügen
-# 4. Realistische Start
+# 3. Realistische Start
 
 # 1. Implement Plot that shows speed over time for the lowest energy trajectory for 
 # A. The first view seconds
