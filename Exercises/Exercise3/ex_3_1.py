@@ -226,7 +226,7 @@ def detect_outer_solar_system(t, y, masses, gravity_const, n_dim, n_bodies, radi
     idx_first_object = n_bodies-1
     idx_second_object = 0
     distance_sun_jupiter = slc.distance_sun_jupiter_in_m
-    pos_proj  = x_array[:,idx_first_object]
+    pos_proj = x_array[:,idx_first_object]
     pos_sun = x_array[:,idx_second_object]
     distance_to_sun = np.linalg.norm(get_connection_vector(x_array, idx_first_object, idx_second_object))
     return distance_to_sun - distance_sun_jupiter
@@ -466,7 +466,7 @@ def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_
 
 # daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
 def calc_init_pos_and_rest_speed(daytime):
-    offset = 9000 # Altitude offset for projectile in m, majorly influences drag force
+    offset = 1000 # Altitude offset for projectile in m, majorly influences drag force
     x = (slc.earth_radius_in_meter + offset) * np.cos(daytime * np.pi / 12) # fraction shortened, was 2*Pi/24
     y = (slc.earth_radius_in_meter + offset) * np.sin(daytime * np.pi / 12)
 
@@ -565,9 +565,14 @@ def show_or_close_figure(fig, show_figs):
     else:
         plt.close(fig)
 
-def set_plot_size_and_margins():
-    plt.gcf().set_size_inches(8, 6)
-    plt.subplots_adjust(left=0.10, right=0.95, top=0.95, bottom=0.10)
+def set_plot_size_and_margins(wide):
+    if (wide):
+        right_margin = 0.98
+    else:
+        right_margin = 0.80
+    
+    plt.gcf().set_size_inches(8, 5)
+    plt.subplots_adjust(left=0.10, right=right_margin, top=0.95, bottom=0.10)
     # return 
 
 
@@ -633,7 +638,7 @@ def plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, u
     c = ax.pcolormesh(x, y, angle_velo_array, cmap='viridis', \
         norm=colors.LogNorm(vmin=0.99, vmax=100))
 
-    set_plot_size_and_margins()
+    set_plot_size_and_margins(True)
 
     fig.colorbar(c, ax=ax, label='minimal distance to sun [solar radii]')
     plt.savefig(get_daytime_filename(file_name, daytime, use_drag, use_solar_force))
@@ -655,7 +660,7 @@ def plot_stop_criterion(condition_array, idx_daytime, daytime, show_figs, use_dr
     cmap = plt.get_cmap('tab10', 8)
     c = ax.pcolormesh(x, y, angle_velo_array, cmap=cmap,  vmin= -0.5, vmax=7.5)
 
-    set_plot_size_and_margins()
+    set_plot_size_and_margins(False)
 
     cbar = fig.colorbar(c, ax=ax, label='stop criterion', ticks=[0, 1, 2, 3, 4, 5, 6, 7])
     cbar.set_ticklabels(ticklabels)
@@ -671,17 +676,17 @@ def set_parameter_space():
     max_angle = 180
     min_velocity =  10*km_to_m
     max_velocity = 100*km_to_m
-    min_daytime = 0
-    max_daytime = 21
-    number_of_daytimes = 4
-    number_of_angles =  5
-    number_of_velocity_steps =  5
+    min_daytime = 18
+    max_daytime = 18
+    number_of_daytimes = 1
+    number_of_angles =  80
+    number_of_velocity_steps =  80
     
     # Optimal low energy trajectory
     # min_angle =  90
     # max_angle =  90
-    # min_velocity =   29.7*km_to_m
-    # max_velocity =   29.7*km_to_m
+    # min_velocity =   59.7*km_to_m
+    # max_velocity =   59.7*km_to_m
     # min_daytime = 18
     # max_daytime = 18
     # number_of_daytimes = 1
@@ -701,8 +706,7 @@ if __name__ == "__main__":
 
     names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
 
-    use_drag = False
-    # use_solar_force = False
+    use_drag = True
     use_solar_force = True
 
     condition_array = set_parameter_space()
@@ -713,3 +717,30 @@ if __name__ == "__main__":
     t_max = 1.05*slc.year_in_seconds # maximum time in years
 
     single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag, use_solar_force)
+
+# TODO: 
+# Implementierung:
+# 1. Komplett andere Farbe für Kollision mit Sonne
+# 2. Daten berechnung vom Plotten entkoppeln
+# 3. Rubrik "Outer Apex" und "no stop" entfernen, dafür Kollision mit Mond hinzufügen
+# 4. Realistische Start
+
+# 1. Implement Plot that shows speed over time for the lowest energy trajectory for 
+# A. The first view seconds
+# B. The whole trajectory (Gives 2 insights: 1. Overall time, 2. Speed up through sun gravity in comparison to atmospheric drag)
+
+# 2. Run calculations at daytime 17 and 19 with 40x40 grid with drag.
+
+# 3. Run calculation for daytime 18 in 80x80 gird with drag and solar force. (Done!)
+
+# 4. Run calculations with daytime range 0 to 21 in 8 steps with drag and solar force
+
+# 5. Comparison of projectile masses and radii. I assume that this does only have significant impact on the drag force.
+# A. m=   0.1 t, r= 0.14 m
+# B. m=   1   t, r= 0.30 m (current)
+# C. m=  10   t, r= 0.65 m
+# D. m= 100   t, r= 1.40 m
+
+# 6. Plots of different types of trajectories (for of every stop criterion)
+
+
