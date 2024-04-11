@@ -431,7 +431,6 @@ def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, cond
     v_init_new[0:2,idx_projectile] = v_init[0:2,idx_projectile] + calc_initial_velocity(conditions, connection_vector)
     return x_init_new, v_init_new
 
-
 def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag, use_solar_force):
     number_of_daytimes = condition_array.shape[2]
     idx_earth = 1
@@ -464,7 +463,6 @@ def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_
         daytime = condition_array[0,0,idx_daytime].daytime
         plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force)
         plot_stop_criterion(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force)
-
 
 # daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
 def calc_init_pos_and_rest_speed(daytime):
@@ -638,9 +636,12 @@ def plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, u
     ax, x, y, fig = plot_preparation(velocity_array, angle_array)
     
     c = ax.pcolormesh(x, y, angle_velo_array, cmap='viridis', \
-        norm=colors.LogNorm(vmin=0.99, vmax=100))
+        norm=colors.LogNorm(vmin=1, vmax=100))
 
     set_plot_size_and_margins(True)
+
+    c.set_clim(1.0, 100)
+    c.cmap.set_under('red')
 
     fig.colorbar(c, ax=ax, label='minimal distance to sun [solar radii]')
     plt.savefig(get_daytime_filename(file_name, daytime, use_drag, use_solar_force))
@@ -681,8 +682,8 @@ def set_parameter_space():
     min_daytime = 18
     max_daytime = 18
     number_of_daytimes = 1
-    number_of_angles =  20
-    number_of_velocity_steps =  20
+    number_of_angles =  10
+    number_of_velocity_steps =  10
     
     # Optimal low energy trajectory
     # min_angle =  90
@@ -716,7 +717,7 @@ if __name__ == "__main__":
     # Set print options for numpy
     np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
-    prefac = 3.05
+    prefac = 1.05
 
     t_max = prefac*slc.year_in_seconds # maximum time in years
 
@@ -724,9 +725,8 @@ if __name__ == "__main__":
 
 # TODO: 
 # Implementierung:
-# 1. Komplett andere Farbe für Kollision mit Sonne
-# 2. Daten berechnung vom Plotten entkoppeln
-# 3. Realistische Start
+# 1. Daten berechnung vom Plotten entkoppeln
+# 2. Realistischer Start
 
 # 1. Implement Plot that shows speed over time for the lowest energy trajectory for 
 # A. The first view seconds
