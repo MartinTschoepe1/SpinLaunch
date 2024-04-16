@@ -49,7 +49,7 @@ def set_projectile_init_con(angle_values, velocity_values, daytime_values):
 
 def determine_full_path(file_name):
     file_path = os.path.dirname(os.path.abspath('ex_3_1.py'))
-    file_path = file_path + "\\Exercises\\Exercise3\\" + file_name
+    file_path = file_path + "\\\Direct_to_sun_shot\\" + file_name
     return file_path
 
 # load initil positions and masses from file
