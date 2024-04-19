@@ -12,6 +12,7 @@ from scipy.constants import astronomical_unit as AU
 import spin_launch_constants as slc
 import Forces
 import Plotting
+import Event_and_update_functions_for_solve_ivp as euf
 
 #Assumed projectile properties
 # Explicitly:
@@ -69,169 +70,12 @@ def load_solar_system_file(file_name):
     return names, x_init, v_init, m, radius, g
 
 
-
-###### Necessary due to the 1D (poc, velo, force) vector in solve_ivp ######
-def get_first_half_of_array(array):
-    return array[:len(array)//2]
-
-def get_second_half_of_array(array):
-    return array[len(array)//2:]
-
-def get_position_array(y, n_dim, n_bodies):
-    x_vec = get_first_half_of_array(y)
-    x_array = x_vec.reshape((n_dim, n_bodies))
-    return x_array
-
-def get_velocity_array(y, n_dim, n_bodies):
-    v_vec = get_second_half_of_array(y)
-    v_array = v_vec.reshape((n_dim, n_bodies))
-    return v_array
-
-
 ###### Vector operations ######
 def get_connection_vector(x_array, idx_first_object, idx_second_object):
     pos1 = x_array[:,idx_first_object]
     pos2 = x_array[:,idx_second_object]
     return pos1 - pos2
 
-
-
-###### Update function and event functions for solve_ivp ######
-def update_function(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, \
-        use_drag, use_solar_force):
-    x_array = get_position_array(y, n_dim, n_bodies)
-    v_vec = get_second_half_of_array(y)
-    dvdt = Forces.calc_massless_forces(x_array, v_vec, masses, gravity_const, use_drag, use_solar_force).flatten()
-    res = np.concatenate((v_vec, dvdt))
-    return res
-
-def detect_collision_projectile(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, \
-        use_drag, use_solar_force):
-    x_array = get_position_array(y, n_dim, n_bodies)
-
-    idx_first_object = n_bodies-1
-    pos_proj  = x_array[:,idx_first_object] # current position of projectile
-    product_for_sign_change_criterion = 1.0
-
-    for idx in range(idx_first_object):
-        pos_object = x_array[:,idx]
-        distance_between_surfaces = np.linalg.norm(pos_proj-pos_object) - radius[idx] + radius[idx_first_object]
-        if (distance_between_surfaces < 0):
-            idx_coll_obj[0] = idx
-        product_for_sign_change_criterion *= distance_between_surfaces
-    return product_for_sign_change_criterion
-
-# Detect when projectile is still within moon orbit after one week. Event is terminal. Run time optimization. 
-def detect_slow_orbits(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, \
-        use_drag, use_solar_force):
-    x_array = get_position_array(y, n_dim, n_bodies)
-
-    idx_first_object = n_bodies-1
-    idx_of_earth = 1
-    idx_of_moon = 2
-    six_days_in_seconds = 6.0 * 24 * 60 * 60
-    pos_proj  = x_array[:,idx_first_object]
-    pos_earth = x_array[:,idx_of_earth]
-    pos_moon  = x_array[:,idx_of_moon]
-    
-    is_projectile_within_moon_orbit = np.linalg.norm(pos_proj-pos_earth) < np.linalg.norm(pos_moon-pos_earth)
-    is_within_six_days = t < six_days_in_seconds
-
-    if (is_within_six_days):
-        return 1
-    else:
-        if (is_projectile_within_moon_orbit):
-            return -1
-        else:
-            return 1
-
-# Helper function that is only indirectly called by solve_ivp via detect_inner_solar_apex and detect_outer_solar_apex
-def detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, \
-        use_drag, use_solar_force):
-    x_array = get_position_array(y, n_dim, n_bodies)
-    v_array = get_velocity_array(y, n_dim, n_bodies)
-
-    idx_first_object = n_bodies-1
-    idx_second_object = 0
-    relativ_pos_proj = get_connection_vector(x_array, idx_first_object, idx_second_object)
-
-    velocity_proj = v_array[:,idx_first_object]
-    velocity_sun = v_array[:,idx_second_object]
-
-    relativ_velocity_proj = velocity_proj - velocity_sun
-    abs_value_distance_to_sun = np.linalg.norm(relativ_pos_proj)
-
-    dot_product = np.dot(relativ_pos_proj, relativ_velocity_proj)
-    denominator = np.linalg.norm(relativ_pos_proj) * np.linalg.norm(relativ_velocity_proj)
-    angle_between_pos_and_velocity_rad = np.arccos(dot_product / denominator)
-    angle_degree = angle_between_pos_and_velocity_rad * 180 / np.pi - 90
-
-    return angle_degree
-
-# Detect inner apex of projectile trajectory to increase accuracy, event is not terminal
-def detect_inner_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, \
-        use_drag, use_solar_force):
-    angle_degree = detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, \
-            use_drag, use_solar_force)
-    return angle_degree
-
-# Detect outer apex after the first inner apex of projectile trajectory to terminate simulation, run time optimization
-def detect_outer_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, \
-        use_drag, use_solar_force):
-    angle_degree = detect_solar_apex(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached)
-    one_week_in_years = 1.0 / 52.0
-    if (is_apex_reached[0] == False or t < one_week_in_years):
-        return 1.0
-    else:
-        return angle_degree
-
-def detect_outer_solar_system(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, \
-        use_drag, use_solar_force):
-    x_array = get_position_array(y, n_dim, n_bodies)
-    idx_first_object = n_bodies-1
-    idx_second_object = 0
-    distance_sun_jupiter = slc.distance_sun_jupiter_in_m
-    pos_proj = x_array[:,idx_first_object]
-    pos_sun = x_array[:,idx_second_object]
-    distance_to_sun = np.linalg.norm(get_connection_vector(x_array, idx_first_object, idx_second_object))
-    return distance_to_sun - distance_sun_jupiter
-
-def get_stop_criterion(sol, idx_coll_obj):
-    
-    if (sol.status == 0):
-        stop_criterion = 0 # time limit reached
-    elif (sol.status == 1):
-        if (sol.t_events[3].size > 0):
-            stop_criterion = 1 # outer solar system reached
-        elif (sol.t_events[1].size > 0):
-            stop_criterion = 2 # slow orbit reached
-        elif (sol.t_events[0].size > 0):
-            if (idx_coll_obj[0] == 0):
-                stop_criterion = 3 # sun collision
-            elif (idx_coll_obj[0] == 1):
-                stop_criterion = 4 # earth collision
-            elif (idx_coll_obj[0] == 2):
-                stop_criterion = 5 # moon collision
-            elif (idx_coll_obj[0] == 5):
-                stop_criterion = 6 # mercury collision
-            else:
-                stop_criterion = 7 # collision with other object
-        else:
-            stop_criterion = 8 # no stop criterion reached
-    else:
-        stop_criterion = 8 # no stop criterion reached
-    return stop_criterion
-
-# Set event functions for solve_ivp
-def set_event_functions():
-    detect_collision_projectile.terminal = True
-    detect_collision_projectile.direction = 0
-    detect_slow_orbits.terminal = True
-    detect_slow_orbits.direction = 0
-    detect_inner_solar_apex.terminal = False
-    detect_inner_solar_apex.direction = -1.0
-    detect_outer_solar_system.terminal = True
-    detect_outer_solar_system.direction = 1.0
 
 def sol_step(t_max, x_init, v_init, masses, gravity_const, radius, use_drag, use_solar_force):
     time_interval = [0, t_max]
@@ -249,23 +93,23 @@ def sol_step(t_max, x_init, v_init, masses, gravity_const, radius, use_drag, use
     # and the last 3*n entries are the initial velocities
     x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
 
-    set_event_functions()
+    euf.set_event_functions()
     args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, use_drag, use_solar_force
  
-    event_tuple = detect_collision_projectile, detect_slow_orbits, detect_inner_solar_apex, detect_outer_solar_system
+    event_tuple = euf.detect_collision_projectile, euf.detect_slow_orbits, euf.detect_inner_solar_apex, euf.detect_outer_solar_system
     # Method comparison:
     # Time: RK45 (30.50s), RK23 (168.53s), DOP853 (31.15s), Radau (210.90s), BDF (75.36s), LSODA (25.92s)
-    sol = solve_ivp(update_function, time_interval, x_v_init_flat, args=args_tuple, first_step=1e-10, \
+    sol = solve_ivp(euf.update_function, time_interval, x_v_init_flat, args=args_tuple, first_step=1e-10, \
         events=event_tuple, rtol=1e-7)
 
     number_of_steps = len(sol.t)
 
-    stop_criterion = get_stop_criterion(sol, idx_coll_obj)
+    stop_criterion = euf.get_stop_criterion(sol, idx_coll_obj)
 
-    trajectories = get_first_half_of_array(sol.y)
+    trajectories = euf.get_first_half_of_array(sol.y)
     trajectories = trajectories.reshape(( n_dim, n_bodies, number_of_steps ))
 
-    get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
+    euf.get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
     return trajectories, number_of_steps, stop_criterion
 
 
@@ -306,8 +150,8 @@ def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_
         conditions.min_distance_to_sun = calc_min_distance_to_sun(x_trajec, radius)
         conditions.stop_criterion = stop_criterion
 
-        Plotting.plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric", show_figs)
-        Plotting.plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric", show_figs)
+        # Plotting.plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric", show_figs)
+        # Plotting.plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric", show_figs)
 
     print("Time elapsed: ", time.time()-t0, "seconds")
     
