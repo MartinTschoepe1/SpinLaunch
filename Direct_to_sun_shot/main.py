@@ -68,42 +68,42 @@ def load_solar_system_file(file_name):
 
     return names, x_init, v_init, m, radius, g
 
-# Define a function to calculate force between colliding objects
-def calc_collision_forces(x, orig_forces, idx_of_coll_obj):
-    space_dim, n = x.shape # dimension of space, number of bodies
-    collision_forces = np.zeros((space_dim, n)) # array to store forces (6 bodies, 2 dimensions)
-    idx_first_object = n-1
+# # Define a function to calculate force between colliding objects
+# def calc_collision_forces(x, orig_forces, idx_of_coll_obj):
+#     space_dim, n = x.shape # dimension of space, number of bodies
+#     collision_forces = np.zeros((space_dim, n)) # array to store forces (6 bodies, 2 dimensions)
+#     idx_first_object = n-1
 
-    collison_vec = x[:,idx_of_coll_obj] - x[:,idx_first_object] # vector pointing from projectile to colliding object
-    collison_vec = collison_vec / np.linalg.norm(collison_vec) # normalize vector
-    projected_force = np.dot(orig_forces[:,idx_first_object], collison_vec) * collison_vec
+#     collison_vec = x[:,idx_of_coll_obj] - x[:,idx_first_object] # vector pointing from projectile to colliding object
+#     collison_vec = collison_vec / np.linalg.norm(collison_vec) # normalize vector
+#     projected_force = np.dot(orig_forces[:,idx_first_object], collison_vec) * collison_vec
 
-    collision_forces[:,idx_first_object] = - projected_force
-    collision_forces[:,idx_of_coll_obj] = projected_force
+#     collision_forces[:,idx_first_object] = - projected_force
+#     collision_forces[:,idx_of_coll_obj] = projected_force
 
-    return collision_forces
+#     return collision_forces
 
-def apply_force_correction(x, orig_forces, idx_of_coll_obj):
-    collision_forces = calc_collision_forces(x, orig_forces, idx_of_coll_obj)
-    corrected_forces = orig_forces + collision_forces
-    return corrected_forces
+# def apply_force_correction(x, orig_forces, idx_of_coll_obj):
+#     collision_forces = calc_collision_forces(x, orig_forces, idx_of_coll_obj)
+#     corrected_forces = orig_forces + collision_forces
+#     return corrected_forces
 
 # Define a function to identify if the projectil touches the surface of an object while a force is acting towards the object
-def detect_surface_touch(x, r):
-    collision = False
-    n = x.shape[1] # number of bodies
-    idx_first_object = n-1
-    idx_of_coll_obj = np.nan # index of the colliding object. Can be between 0 and n-1
-    for i in range(n-1):
-        current_pos_proj = x[:,idx_first_object] # current position of the projectile
-        current_pos_obj = x[:,i] # current position of the object
-        collision_in_current_step = np.linalg.norm(current_pos_proj-current_pos_obj) < r[i]+r[idx_first_object]
+# def detect_surface_touch(x, r):
+#     collision = False
+#     n = x.shape[1] # number of bodies
+#     idx_first_object = n-1
+#     idx_of_coll_obj = np.nan # index of the colliding object. Can be between 0 and n-1
+#     for i in range(n-1):
+#         current_pos_proj = x[:,idx_first_object] # current position of the projectile
+#         current_pos_obj = x[:,i] # current position of the object
+#         collision_in_current_step = np.linalg.norm(current_pos_proj-current_pos_obj) < r[i]+r[idx_first_object]
 
-        if collision_in_current_step:
-            collision = True
-            idx_of_coll_obj = i
+#         if collision_in_current_step:
+#             collision = True
+#             idx_of_coll_obj = i
 
-    return collision, idx_of_coll_obj
+#     return collision, idx_of_coll_obj
 
 
 
