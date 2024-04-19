@@ -1,44 +1,7 @@
+import numpy as np
 import matplotlib.pyplot as plt
-
-###### Preparation functions ######
-# Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
-def plot_preparation(velocity_array, angle_array):
-    x, y = np.meshgrid(velocity_array, angle_array)
-    fig, ax = plt.subplots()
-    ax.set_xlabel('velocity [m/s]')
-    ax.set_ylabel('angle [°]')
-    plt.gcf().set_size_inches(18, 12)
-    return ax, x, y, fig
-
-def get_daytime_filename(file_name, daytime, use_drag, use_solar_force):
-    if (use_drag):
-        file_name = file_name + "_with_drag"
-    else:
-        file_name = file_name + "_without_drag"
-
-    if (use_solar_force):
-        file_name = file_name + "_with_solar"
-    else:
-        file_name = file_name + "_without_solar"
-
-    rounded_daytime = str(int(np.round(daytime)))
-    return file_name + "_time_" + rounded_daytime + ".pdf"
-
-def show_or_close_figure(fig, show_figs):
-    if show_figs:
-        plt.show()
-    else:
-        plt.close(fig)
-
-def set_plot_size_and_margins(wide):
-    if (wide):
-        right_margin = 0.98
-    else:
-        right_margin = 0.80
-    
-    plt.gcf().set_size_inches(8, 5)
-    plt.subplots_adjust(left=0.10, right=right_margin, top=0.95, bottom=0.10)
-    # return 
+import matplotlib.colors as colors
+import spin_launch_constants as slc
 
 
 ###### Plotting functions ######
@@ -77,15 +40,6 @@ def plot_trajectories_geocentric(x_trajec, names, file_name, show_figs):
     plt.gcf().set_size_inches(12, 12)
     plt.legend()
     plt.savefig(file_name + ".pdf")
-    plt.show()
-
-def plot_energy(E_trajec, file_name, show_figs):
-    plt.plot(E_trajec)
-    plt.xlabel("time step")
-    plt.ylabel("total energy")
-    # set x range from 0 max value reached by E_trajec
-    plt.ylim(0, np.max(E_trajec)*1.05)
-    plt.savefig(file_name)
     plt.show()
 
 def plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force):
@@ -135,3 +89,63 @@ def plot_stop_criterion(condition_array, idx_daytime, daytime, show_figs, use_dr
     plt.savefig(get_daytime_filename(file_name, daytime, use_drag, use_solar_force))
 
     show_or_close_figure(fig, show_figs)
+
+###### Preparation functions ######
+# Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
+def plot_preparation(velocity_array, angle_array):
+    x, y = np.meshgrid(velocity_array, angle_array)
+    fig, ax = plt.subplots()
+    ax.set_xlabel('velocity [m/s]')
+    ax.set_ylabel('angle [°]')
+    plt.gcf().set_size_inches(18, 12)
+    return ax, x, y, fig
+
+def get_daytime_filename(file_name, daytime, use_drag, use_solar_force):
+    if (use_drag):
+        file_name = file_name + "_with_drag"
+    else:
+        file_name = file_name + "_without_drag"
+
+    if (use_solar_force):
+        file_name = file_name + "_with_solar"
+    else:
+        file_name = file_name + "_without_solar"
+
+    rounded_daytime = str(int(np.round(daytime)))
+    return file_name + "_time_" + rounded_daytime + ".pdf"
+
+def show_or_close_figure(fig, show_figs):
+    if show_figs:
+        plt.show()
+    else:
+        plt.close(fig)
+
+def set_plot_size_and_margins(wide):
+    if (wide):
+        right_margin = 0.98
+    else:
+        right_margin = 0.80
+    
+    plt.gcf().set_size_inches(8, 5)
+    plt.subplots_adjust(left=0.10, right=right_margin, top=0.95, bottom=0.10)
+    # return 
+
+# Extracts the angle, velocity and minimal distance to sun/stop criterium from the condition array
+def convert_set_of_objects_into_arrays(condition_array, attribute_name):
+    number_of_angles, number_of_velocity_steps, number_of_daytimes = condition_array.shape
+    
+    angle_array = np.zeros((number_of_angles))
+    velocity_array = np.zeros((number_of_velocity_steps))
+    daytimes_array = np.zeros((number_of_daytimes))
+    min_distance_to_sun_array = np.zeros((number_of_angles, number_of_velocity_steps, number_of_daytimes))
+    
+    for idx_angle in range(number_of_angles):
+        for idx_velocity in range(number_of_velocity_steps):
+            for idx_daytime in range(number_of_daytimes):
+                current_conditions = condition_array[idx_angle, idx_velocity, idx_daytime]
+                angle_array[idx_angle] = current_conditions.angle
+                velocity_array[idx_velocity] = current_conditions.velocity
+                daytimes_array[idx_daytime] = current_conditions.daytime
+                min_distance_to_sun_array[idx_angle, idx_velocity, idx_daytime] = getattr(current_conditions,attribute_name)
+    
+    return angle_array, velocity_array, daytimes_array, min_distance_to_sun_array
