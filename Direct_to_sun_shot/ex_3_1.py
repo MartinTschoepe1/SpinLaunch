@@ -11,6 +11,7 @@ from scipy.constants import astronomical_unit as AU
 
 import spin_launch_constants as slc
 import Forces
+import Plotting
 
 #Assumed projectile properties
 # Explicitly:
@@ -342,9 +343,8 @@ def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_
         conditions.min_distance_to_sun = calc_min_distance_to_sun(x_trajec, radius)
         conditions.stop_criterion = stop_criterion
 
-        # plot_energy(E_trajec, "energy.pdf", show_figs)
-        # plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric", show_figs)
-        # plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric", show_figs)
+        plot_trajectories_geocentric(x_trajec, names, "trajectories_geocentric", show_figs)
+        plot_trajectories_solarcentric(x_trajec, names, "trajectories_solarcentric", show_figs)
 
     print("Time elapsed: ", time.time()-t0, "seconds")
     
@@ -425,6 +425,7 @@ def convert_set_of_objects_into_arrays(condition_array, attribute_name):
     
     return angle_array, velocity_array, daytimes_array, min_distance_to_sun_array
 
+###### Preparation functions ######
 # Creates figure with colorbar that shows the mimal distance between the projectile and sun depending on the angle and velocity
 def plot_preparation(velocity_array, angle_array):
     x, y = np.meshgrid(velocity_array, angle_array)
@@ -503,15 +504,6 @@ def plot_trajectories_geocentric(x_trajec, names, file_name, show_figs):
     plt.savefig(file_name + ".pdf")
     plt.show()
 
-def plot_energy(E_trajec, file_name, show_figs):
-    plt.plot(E_trajec)
-    plt.xlabel("time step")
-    plt.ylabel("total energy")
-    # set x range from 0 max value reached by E_trajec
-    plt.ylim(0, np.max(E_trajec)*1.05)
-    plt.savefig(file_name)
-    plt.show()
-
 def plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force):
     file_name = "dist_to_sun"
     angle_array, velocity_array, daytimes_array, min_distance_to_sun_array = \
@@ -570,9 +562,9 @@ def set_parameter_space():
     max_velocity = 100*km_to_m
     min_daytime = 18
     max_daytime = 18
-    number_of_daytimes = 1
-    number_of_angles =  10
-    number_of_velocity_steps =  10
+    number_of_daytimes = 2
+    number_of_angles =  4
+    number_of_velocity_steps =  4
     
     # Optimal low energy trajectory
     # min_angle =  90
