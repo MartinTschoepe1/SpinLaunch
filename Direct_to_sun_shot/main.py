@@ -424,7 +424,6 @@ def set_parameter_space():
     condition_array = set_projectile_init_con(angle_values, velocity_values, daytime_values)
     return condition_array
 
-
 # TODO: Extract the following procedure into a separate function
 if __name__ == "__main__":
 
