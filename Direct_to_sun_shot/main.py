@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import os
+import cProfile
+import pstats
 import time
 
 import numpy as np
@@ -113,7 +115,6 @@ def sol_step(t_max, x_init, v_init, masses, gravity_const, radius, use_drag, use
     return trajectories, number_of_steps, stop_criterion
 
 
-
 ###### Solar system simulation functions ######
 def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions):
     idx_projectile = x_init.shape[1]-1
@@ -128,15 +129,20 @@ def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, cond
     v_init_new[0:2,idx_projectile] = v_init[0:2,idx_projectile] + calc_initial_velocity(conditions, connection_vector)
     return x_init_new, v_init_new
 
-def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag, use_solar_force):
+# First try to implement a method to simulate the trajectory of a projectile that is shot from the surface of the earth
+def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array):
     number_of_daytimes = condition_array.shape[2]
     idx_earth = 1
     numb_of_simulations = condition_array.size
     t0 = time.time() # start clock for timing
     # show_figs = False
     show_figs = True
+    use_drag = [np.nan]
+    use_solar_force = [True]
 
     for numb, conditions in enumerate(condition_array.flatten()):
+        use_drag[0] = True
+
         x_init_delta, v_init_delta = calc_init_pos_and_rest_speed(conditions.daytime)
 
         x_init_new, v_init_new = get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions)
@@ -159,6 +165,7 @@ def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_
         daytime = condition_array[0,0,idx_daytime].daytime
         Plotting.plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force)
         Plotting.plot_stop_criterion(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force)
+
 
 # daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
 def calc_init_pos_and_rest_speed(daytime):
@@ -209,9 +216,9 @@ def set_parameter_space():
     max_velocity = 100*km_to_m
     min_daytime = 18
     max_daytime = 18
-    number_of_daytimes = 2
-    number_of_angles =  4
-    number_of_velocity_steps =  4
+    number_of_daytimes = 1
+    number_of_angles =  20
+    number_of_velocity_steps =  20
     
     # Optimal low energy trajectory
     # min_angle =  90
@@ -234,21 +241,41 @@ def set_parameter_space():
 # TODO: Extract the following procedure into a separate function
 if __name__ == "__main__":
 
-    names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
+    with cProfile.Profile() as pr:
+        names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
 
-    use_drag = False
-    use_solar_force = True
+        condition_array = set_parameter_space()
 
-    condition_array = set_parameter_space()
+        # Set print options for numpy
+        np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
-    # Set print options for numpy
-    np.set_printoptions(precision=7, suppress=True, linewidth=200)
+        prefac = 1.05
 
-    prefac = 1.05
+        t_max = prefac*slc.year_in_seconds
+        single_simulation(x_init, v_init, m, g, t_max, radius, condition_array)
+    
+    file_path = determine_full_path("profile_stats.prof")
+    pr.dump_stats(file_path)
+    stats = pstats.Stats(file_path)
+    stats.strip_dirs().sort_stats('cumulative').print_stats(40)
 
-    t_max = prefac*slc.year_in_seconds # maximum time in years
 
-    single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag, use_solar_force)
+
+    # names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
+
+    # use_drag = False
+    # use_solar_force = True
+
+    # condition_array = set_parameter_space()
+
+    # # Set print options for numpy
+    # np.set_printoptions(precision=7, suppress=True, linewidth=200)
+
+    # prefac = 1.05
+
+    # t_max = prefac*slc.year_in_seconds # maximum time in years
+
+    # single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag, use_solar_force)
 
 # TODO: 
 # Implementierung:

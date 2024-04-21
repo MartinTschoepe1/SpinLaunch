@@ -16,7 +16,7 @@ def update_function(t, y, masses, gravity_const, n_dim, n_bodies, radius, is_ape
         use_drag, use_solar_force):
     x_array = get_position_array(y, n_dim, n_bodies)
     v_vec = get_second_half_of_array(y)
-    dvdt = Forces.calc_massless_forces(x_array, v_vec, masses, gravity_const, use_drag, use_solar_force).flatten()
+    dvdt = Forces.forces(x_array, v_vec, masses, gravity_const, use_drag, use_solar_force).flatten()
     res = np.concatenate((v_vec, dvdt))
     return res
 
@@ -34,6 +34,7 @@ def detect_collision_projectile(t, y, masses, gravity_const, n_dim, n_bodies, ra
         if (distance_between_surfaces < 0):
             idx_coll_obj[0] = idx
         product_for_sign_change_criterion *= distance_between_surfaces
+
     return product_for_sign_change_criterion
 
 # Detect when projectile is still within moon orbit after one week. Event is terminal. Run time optimization. 
