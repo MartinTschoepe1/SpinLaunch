@@ -79,12 +79,14 @@ def get_connection_vector(x_array, idx_first_object, idx_second_object):
     return pos1 - pos2
 
 
-def sol_step(t_max, x_init, v_init, masses, gravity_const, radius, use_drag, use_solar_force):
+
+def sol_step_vectorized(t_max, x_init, v_init, masses, gravity_const, radius, use_drag_value, use_solar_force_list):
     time_interval = [0, t_max]
-    n_dim, n_bodies = x_init.shape
+    n_dim, n_bodies, numb_conditions = x_init.shape
     is_apex_reached = [False]
     idx_coll_obj = [False]
     stop_criterion = 0
+    use_drag_list = [use_drag_value]
 
     x_init_flat = x_init.flatten()
     v_init_flat = v_init.flatten()
@@ -96,7 +98,49 @@ def sol_step(t_max, x_init, v_init, masses, gravity_const, radius, use_drag, use
     x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
 
     euf.set_event_functions()
-    args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, use_drag, use_solar_force
+    n_shape = x_init.shape
+    args_tuple = masses, gravity_const, n_shape, radius, is_apex_reached, idx_coll_obj, use_drag_list, use_solar_force_list
+    # args_tuple = masses, gravity_const, n_dim, n_bodies, n_conditions, radius, is_apex_reached, idx_coll_obj, use_drag_list, use_solar_force_list
+ 
+    event_tuple = euf.detect_collision_projectile, euf.detect_slow_orbits, euf.detect_inner_solar_apex, euf.detect_outer_solar_system
+    # Method comparison:
+    # Time: RK45 (30.50s), RK23 (168.53s), DOP853 (31.15s), Radau (210.90s), BDF (75.36s), LSODA (25.92s)
+    sol = solve_ivp(euf.update_function, time_interval, x_v_init_flat, args=args_tuple, first_step=1e-10, \
+        events=event_tuple, rtol=1e-7)
+
+    number_of_steps = len(sol.t)
+
+    stop_criterion = euf.get_stop_criterion(sol, idx_coll_obj)
+
+    trajectories = euf.get_first_half_of_array(sol.y)
+    trajectories = trajectories.reshape(( n_dim, n_bodies, number_of_steps ))
+
+    euf.get_first_half_of_array(sol.y).reshape((n_dim, n_bodies, len(sol.t)))
+    return trajectories, number_of_steps, stop_criterion
+
+
+
+def sol_step(t_max, x_init, v_init, masses, gravity_const, radius, use_drag_value, use_solar_force_list):
+    time_interval = [0, t_max]
+    n_dim, n_bodies = x_init.shape
+    is_apex_reached = [False]
+    idx_coll_obj = [False]
+    stop_criterion = 0
+    use_drag_list = [use_drag_value]
+
+    x_init_flat = x_init.flatten()
+    v_init_flat = v_init.flatten()
+
+    # The x_v_init_flat array is the initial state of the system in the follwoing format:
+    # [x1, y1, z1, x2, y2, z2, ... , xn, yn, zy, vx1, vy1, vz1, vx2, vy2, vz2, ... , vxn, vyn, vzn]
+    # where n is the number of bodies and the first 3*n entries are the initial positions 
+    # and the last 3*n entries are the initial velocities
+    x_v_init_flat = np.concatenate((x_init_flat, v_init_flat))
+
+    euf.set_event_functions()
+    n_shapes = x_init.shape
+    args_tuple = masses, gravity_const, n_shapes, radius, is_apex_reached, idx_coll_obj, use_drag_list, use_solar_force_list
+    # args_tuple = masses, gravity_const, n_dim, n_bodies, radius, is_apex_reached, idx_coll_obj, use_drag_list, use_solar_force_list
  
     event_tuple = euf.detect_collision_projectile, euf.detect_slow_orbits, euf.detect_inner_solar_apex, euf.detect_outer_solar_system
     # Method comparison:
@@ -116,6 +160,30 @@ def sol_step(t_max, x_init, v_init, masses, gravity_const, radius, use_drag, use
 
 
 ###### Solar system simulation functions ######
+def get_init_x_and_v_vectorized(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions):
+    idx_projectile = x_init.shape[1]-1
+    x_init_new = np.copy(x_init)
+    v_init_new = np.copy(v_init)
+    
+    x_init_new[0:2,idx_projectile,:] = x_init_new[0:2,idx_projectile,:] + x_init_delta
+    v_init_new[0:2,idx_projectile,:] = v_init_new[0:2,idx_projectile,:] + v_init_delta
+    
+    connection_vector = x_init_new[0:2,idx_projectile,:] - x_init_new[0:2,idx_earth,:]
+    # connection_vector needs to be a 2D array with shape (2, number of conditions in condition_array)
+    # connection_vector = np.repeat(connection_vector[:,:,np.newaxis], conditions.size, axis=2)
+
+    get_angle = np.vectorize(lambda x: x.angle)
+    get_velocity = np.vectorize(lambda x: x.velocity)
+    angle_vector = get_angle(conditions)
+    velocity_vector = get_velocity(conditions)
+    print("v_init_new.shape: ", v_init_new.shape)
+    print("v_init.shape: ", v_init.shape)
+    
+    v_init_new[0:2,idx_projectile,:] = v_init[0:2,idx_projectile,:] + calc_initial_velocity_vectorized(angle_vector, velocity_vector, connection_vector)
+    return x_init_new, v_init_new
+
+
+###### Solar system simulation functions ######
 def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions):
     idx_projectile = x_init.shape[1]-1
     x_init_new = np.copy(x_init)
@@ -129,26 +197,25 @@ def get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, cond
     v_init_new[0:2,idx_projectile] = v_init[0:2,idx_projectile] + calc_initial_velocity(conditions, connection_vector)
     return x_init_new, v_init_new
 
+
 # First try to implement a method to simulate the trajectory of a projectile that is shot from the surface of the earth
-def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array):
+def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag_value, use_solar_force_list):
     number_of_daytimes = condition_array.shape[2]
     idx_earth = 1
     numb_of_simulations = condition_array.size
     t0 = time.time() # start clock for timing
     # show_figs = False
     show_figs = True
-    use_drag = [np.nan]
-    use_solar_force = [True]
+
 
     for numb, conditions in enumerate(condition_array.flatten()):
-        use_drag[0] = True
 
         x_init_delta, v_init_delta = calc_init_pos_and_rest_speed(conditions.daytime)
 
         x_init_new, v_init_new = get_init_x_and_v(x_init, v_init, x_init_delta, v_init_delta, idx_earth, conditions)
 
         x_trajec, number_of_steps, stop_criterion = sol_step(t_max, x_init_new, v_init_new, m, g, radius, 
-            use_drag, use_solar_force)
+            use_drag_value, use_solar_force_list)
 
         print("Sim. #", numb, "of ", numb_of_simulations, "# of steps: ", number_of_steps, " daytime: ", conditions.daytime,
                 "angle: ", np.round(conditions.angle, 4), "velocity: ", np.round(conditions.velocity, 3))
@@ -163,8 +230,39 @@ def single_simulation(x_init, v_init, m, g, t_max, radius, condition_array):
     
     for idx_daytime in range(number_of_daytimes):
         daytime = condition_array[0,0,idx_daytime].daytime
-        Plotting.plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force)
-        Plotting.plot_stop_criterion(condition_array, idx_daytime, daytime, show_figs, use_drag, use_solar_force)
+        Plotting.plot_min_distance_to_sun(condition_array, idx_daytime, daytime, show_figs, use_drag_value, use_solar_force_list[0])
+        Plotting.plot_stop_criterion(condition_array, idx_daytime, daytime, show_figs, use_drag_value, use_solar_force_list[0])
+
+
+def vectorized_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag_value, use_solar_force_list):
+    number_of_daytimes = condition_array.shape[2]
+    idx_earth = 1
+    numb_of_simulations = condition_array.size
+    show_figs = True
+    # use_drag_value = False
+    # use_solar_force_list = [False]
+
+    # x_init and v_init needs to have the shape (2, number of conditions in condition_array)
+    x_init = np.repeat(x_init[:,:,np.newaxis], numb_of_simulations, axis=2)
+    v_init = np.repeat(v_init[:,:,np.newaxis], numb_of_simulations, axis=2)
+
+    # Vectorize the calculation of daytime
+    get_daytime = np.vectorize(lambda x: x.daytime)
+
+    # Vectorize the calculation of initial position and rest speed
+    x_init_delta, v_init_delta = calc_init_pos_and_rest_speed(get_daytime(condition_array.flatten()))
+    
+    # Vectorize the calculation of initial x and v
+    x_init_new, v_init_new = get_init_x_and_v_vectorized(x_init, v_init, x_init_delta, v_init_delta, idx_earth, condition_array.flatten())
+
+    # Vectorize the sol_step function
+    x_trajec, number_of_steps, stop_criterion = sol_step_vectorized(t_max, x_init_new, v_init_new, m, g, radius, 
+        use_drag_value, use_solar_force_list)
+
+    # Vectorize the calculation of minimum distance to sun and stop criterion
+    condition_array.flatten().min_distance_to_sun = calc_min_distance_to_sun(x_trajec, radius)
+    condition_array.flatten().stop_criterion = stop_criterion
+
 
 
 # daytime=0 => midnight (backside of earth), daytime=12 => noon (frontside of earth), daytime=6, 18 => sunrise, sunset
@@ -181,6 +279,19 @@ def calc_init_pos_and_rest_speed(daytime):
     init_pos_delta = np.array([x, y])
     init_rest_speed_delta = np.array([vx, vy])
     return init_pos_delta, init_rest_speed_delta
+
+# Calculate inital velocity vector of the projectile that needs to be added to its idle state
+def calc_initial_velocity_vectorized(start_angle_deg, projec_velocity, connection_vector):
+    start_angle_rad = start_angle_deg * np.pi / 180
+    angle_earth_center_of_mass_to_proj = np.arctan2(connection_vector[1], connection_vector[0])
+    start_angle_rad = angle_earth_center_of_mass_to_proj + np.pi/2 - start_angle_rad
+
+    v_x = projec_velocity * np.cos(start_angle_rad)
+    v_y = projec_velocity * np.sin(start_angle_rad)
+
+    init_velocity_delta = np.array([v_x, v_y])
+    return init_velocity_delta
+
 
 # Calculate inital velocity vector of the projectile that needs to be added to its idle state
 def calc_initial_velocity(conditions, connection_vector):
@@ -217,8 +328,8 @@ def set_parameter_space():
     min_daytime = 18
     max_daytime = 18
     number_of_daytimes = 1
-    number_of_angles =  20
-    number_of_velocity_steps =  20
+    number_of_angles =  5
+    number_of_velocity_steps =  5
     
     # Optimal low energy trajectory
     # min_angle =  90
@@ -246,13 +357,17 @@ if __name__ == "__main__":
 
         condition_array = set_parameter_space()
 
+        use_drag_value = False
+        use_solar_force_list = [True]
+
         # Set print options for numpy
         np.set_printoptions(precision=7, suppress=True, linewidth=200)
 
         prefac = 1.05
 
         t_max = prefac*slc.year_in_seconds
-        single_simulation(x_init, v_init, m, g, t_max, radius, condition_array)
+        single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag_value, use_solar_force_list)
+        # vectorized_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag_value, use_solar_force_list)
     
     file_path = determine_full_path("profile_stats.prof")
     pr.dump_stats(file_path)
@@ -260,29 +375,11 @@ if __name__ == "__main__":
     stats.strip_dirs().sort_stats('cumulative').print_stats(40)
 
 
-
-    # names, x_init, v_init, m, radius, g = load_solar_system_file("solar_system_projectile_radius_wo_mars_SI.npz")
-
-    # use_drag = False
-    # use_solar_force = True
-
-    # condition_array = set_parameter_space()
-
-    # # Set print options for numpy
-    # np.set_printoptions(precision=7, suppress=True, linewidth=200)
-
-    # prefac = 1.05
-
-    # t_max = prefac*slc.year_in_seconds # maximum time in years
-
-    # single_simulation(x_init, v_init, m, g, t_max, radius, condition_array, use_drag, use_solar_force)
-
 # TODO: 
 # Implementierung:
 # 1. Daten berechnung vom Plotten entkoppeln
 # 2. Realistischer Start
 # 3. Laufzeitoptimierung
-# 4. Outsource all functions that are not directly called by solve_ivp
 
 # 1. Implement Plot that shows speed over time for the lowest energy trajectory for 
 # A. The first view seconds
