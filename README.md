@@ -38,3 +38,11 @@ Figure 5: Similar to Figure 4, this figure shows a grid of trajectories, but the
 
 
 For a more detailed description, please see the upcoming paper.
+
+### Libraries and Versions
+python==3.10.13
+matplotlib==3.8.0
+numpy==1.24.3
+scipy==1.11.4
+
+
